@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>UFPB Chat - Inbox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/inbox/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="left-pane">
+      <header class="brand-block">
+        <h1>UFPB Chat</h1>
+        <p>Inbox institucional multiatendente</p>
+      </header>
+
+      <div class="user-card">
+        <div class="user-meta">
+          <strong id="currentUserName">-</strong>
+          <span id="currentUserEmail">-</span>
+        </div>
+        <div class="user-actions">
+          <button id="openPasswordBtn" class="btn btn-small btn-outline">Senha</button>
+          <button id="logoutBtn" class="btn btn-small btn-outline">Sair</button>
+        </div>
+      </div>
+
+      <section id="adminSection" class="admin-section hidden">
+        <div class="admin-card">
+          <div class="admin-users-header">
+            <h3>Admin: Usuários</h3>
+            <button id="refreshUsersBtn" class="btn btn-small">Atualizar</button>
+          </div>
+          <div class="admin-users-filters">
+            <label class="checkbox-inline">
+              <input id="activeUsersOnly" type="checkbox" checked>
+              Somente ativos
+            </label>
+          </div>
+          <div class="users-table-wrapper">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>Status</th>
+                  <th>Login (Recife)</th>
+                  <th>Logout (Recife)</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="adminUsersTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="admin-user-form">
+            <h4>Novo usuário</h4>
+            <label for="newUserName">Nome</label>
+            <input id="newUserName" maxlength="120">
+            <label for="newUserEmail">E-mail</label>
+            <input id="newUserEmail" type="email">
+            <label for="newUserPassword">Senha inicial</label>
+            <input id="newUserPassword" type="password" minlength="8">
+            <button id="createUserBtn" class="btn btn-small">Adicionar usuário</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="conversation-header">
+        <h2>Conversas</h2>
+        <button id="refreshConversationsBtn" class="btn btn-small">Atualizar</button>
+      </div>
+      <ul id="conversationList" class="conversation-list"></ul>
+    </aside>
+
+    <main class="main-pane">
+      <header class="chat-header">
+        <div>
+          <h2 id="chatTitle">Selecione uma conversa</h2>
+          <p id="chatSubtitle">Aguardando seleção</p>
+        </div>
+        <span class="badge" id="messageCountBadge">0 mensagens</span>
+      </header>
+
+      <section id="adminMessageTools" class="admin-message-tools hidden">
+        <label class="checkbox-inline">
+          <input id="selectAllMessagesCheckbox" type="checkbox">
+          Selecionar todas as mensagens visíveis
+        </label>
+        <span id="selectedMessagesCount" class="muted">0 selecionadas</span>
+        <button id="deleteCurrentConversationMessagesBtn" class="btn btn-outline btn-small" type="button">Apagar todas desta conversa</button>
+        <button id="deleteSelectedMessagesBtn" class="btn btn-outline btn-small" type="button" disabled>Apagar selecionadas</button>
+        <button id="deleteAllMessagesBtn" class="btn btn-danger btn-small" type="button">Apagar TODAS (teste)</button>
+      </section>
+
+      <section id="messages" class="messages"></section>
+
+      <section class="composer">
+        <div class="composer-row">
+          <label for="messageType">Tipo</label>
+          <select id="messageType">
+            <option value="text">Texto</option>
+            <option value="image">Imagem</option>
+            <option value="audio">Áudio</option>
+            <option value="video">Vídeo</option>
+          </select>
+        </div>
+
+        <div class="composer-row" id="textRow">
+          <label for="textContent">Mensagem</label>
+          <textarea id="textContent" rows="3" placeholder="Digite sua mensagem..."></textarea>
+        </div>
+
+        <div class="composer-row hidden" id="mediaUrlRow">
+          <label for="mediaUrl">URL da mídia</label>
+          <input id="mediaUrl" placeholder="https://...">
+        </div>
+
+        <div class="composer-row hidden" id="mediaCaptionRow">
+          <label for="mediaCaption">Legenda (opcional)</label>
+          <input id="mediaCaption">
+        </div>
+
+        <div class="composer-row hidden" id="mediaMimeTypeRow">
+          <label for="mediaMimeType">MIME type (opcional)</label>
+          <input id="mediaMimeType" placeholder="image/jpeg, audio/ogg, video/mp4...">
+        </div>
+
+        <div class="composer-row media-actions hidden" id="mediaActionsRow">
+          <input type="file" id="imageFileInput" accept="image/*" class="hidden">
+          <button id="uploadImageBtn" class="btn btn-outline btn-small hidden" type="button">Enviar imagem local</button>
+          <button id="recordAudioBtn" class="btn btn-outline btn-small hidden" type="button">Gravar áudio</button>
+          <button id="recordVideoBtn" class="btn btn-outline btn-small hidden" type="button">Gravar vídeo</button>
+        </div>
+
+        <div class="composer-actions">
+          <button id="sendMessageBtn" class="btn">Enviar</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="loginOverlay" class="overlay">
+    <form id="loginForm" class="modal">
+      <h2>Entrar</h2>
+      <p>Use seu e-mail institucional cadastrado.</p>
+      <label for="loginEmail">E-mail</label>
+      <input id="loginEmail" type="email" required>
+      <label for="loginPassword">Senha</label>
+      <input id="loginPassword" type="password" required>
+      <label for="challengeAnswer" id="challengeLabel">Charada</label>
+      <div class="inline-row">
+        <input id="challengeAnswer" required placeholder="Resposta da charada">
+        <button id="refreshChallengeBtn" class="btn btn-outline btn-small" type="button">Nova</button>
+      </div>
+      <small id="challengeQuestion" class="muted"></small>
+      <button type="submit" class="btn">Acessar inbox</button>
+      <small id="loginError" class="error"></small>
+    </form>
+  </div>
+
+  <div id="passwordOverlay" class="overlay hidden">
+    <form id="passwordForm" class="modal">
+      <h2 id="passwordTitle">Troca obrigatória de senha</h2>
+      <p id="passwordHelp">No primeiro acesso, você precisa definir uma nova senha.</p>
+      <label for="currentPassword">Senha atual</label>
+      <input id="currentPassword" type="password" required>
+      <label for="newPassword">Nova senha</label>
+      <input id="newPassword" type="password" minlength="8" required>
+      <div class="modal-actions">
+        <button id="closePasswordModalBtn" type="button" class="btn btn-outline hidden">Cancelar</button>
+        <button type="submit" class="btn">Atualizar senha</button>
+      </div>
+      <small id="passwordError" class="error"></small>
+    </form>
+  </div>
+
+  <div id="recordOverlay" class="overlay hidden">
+    <div class="modal">
+      <h2 id="recordTitle">Gravação</h2>
+      <p id="recordHelp">Use os botões para iniciar e finalizar.</p>
+      <video id="recordPreview" class="record-preview hidden" autoplay muted playsinline></video>
+      <div class="modal-actions">
+        <button id="cancelRecordBtn" class="btn btn-outline" type="button">Cancelar</button>
+        <button id="startRecordBtn" class="btn" type="button">Iniciar</button>
+        <button id="stopRecordBtn" class="btn hidden" type="button">Parar e anexar</button>
+      </div>
+      <small id="recordError" class="error"></small>
+    </div>
+  </div>
+
+  <div id="exportOverlay" class="overlay hidden">
+    <div class="modal">
+      <h2>Exportar conversa</h2>
+      <p>Escolha o intervalo e o formato para salvar localmente.</p>
+      <label for="exportDate">Data</label>
+      <input id="exportDate" type="date">
+      <label for="exportStartTime">Hora inicial</label>
+      <input id="exportStartTime" type="time" value="00:00">
+      <label for="exportEndTime">Hora final</label>
+      <input id="exportEndTime" type="time" value="23:59">
+      <label for="exportProfile">Perfil do cliente</label>
+      <select id="exportProfile">
+        <option value="indefinido">Indefinido</option>
+        <option value="aluno">Aluno</option>
+        <option value="professor">Professor</option>
+        <option value="funcionario">Funcionário</option>
+        <option value="externo">Externo</option>
+        <option value="ex-aluno">Ex-aluno</option>
+        <option value="multiplos">Múltiplos</option>
+      </select>
+      <div class="modal-actions">
+        <button id="closeExportBtn" type="button" class="btn btn-outline">Cancelar</button>
+        <button id="downloadHtmlBtn" type="button" class="btn btn-outline">Baixar HTML</button>
+        <button id="downloadPdfBtn" type="button" class="btn">Baixar PDF</button>
+      </div>
+      <small id="exportError" class="error"></small>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/inbox/app.js"></script>
+</body>
+</html>
