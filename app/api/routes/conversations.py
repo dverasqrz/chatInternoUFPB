@@ -154,7 +154,7 @@ def delete_all_messages_from_conversation(
         select(func.count()).select_from(Message).where(Message.conversation_id == conversation_id)
     ) or 0
 
-    db.execute(delete(Message).where(Message.conversation_id == conversation_id))
+    db.query(Message).filter(Message.conversation_id == conversation_id).delete(synchronize_session=False)
     db.flush()
     _refresh_or_remove_empty_conversation(db, conversation)
     db.commit()
@@ -169,8 +169,8 @@ def delete_all_messages(
 ) -> MessageBulkDeleteResponse:
     total_messages = db.scalar(select(func.count()).select_from(Message)) or 0
 
-    db.execute(delete(Message))
-    db.execute(delete(Conversation))
+    db.query(Message).delete(synchronize_session=False)
+    db.query(Conversation).delete(synchronize_session=False)
     db.commit()
 
     return MessageBulkDeleteResponse(deleted_count=total_messages)

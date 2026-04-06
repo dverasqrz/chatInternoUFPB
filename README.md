@@ -1,204 +1,267 @@
-# WhatsApp Multiatendente Institucional UFPB
+# UFPB Chat System
 
-Aplicação em Python (FastAPI) com Docker Compose e PostgreSQL em containers separados, com interface web estilo inbox para operação multiatendente.
+Sistema de chat institucional da UFPB com integração WhatsApp, gerenciamento de usuários e recursos avançados.
 
-## O que já está implementado
+## 🚀 Features
 
-- Container `app` (FastAPI) + container `db` (PostgreSQL).
-- Interface web para atendentes em `/inbox`.
-- Recebimento de mensagens por webhook do n8n/EvolutionAPI.
-- Suporte para mensagens `text`, `audio`, `video` e `image`.
-- Upload de imagem local pela inbox (arquivo da máquina).
-- Gravação de áudio e vídeo na inbox (com pedido de autorização do navegador).
-- Mensagem amigável quando não houver microfone/webcam disponível.
-- Charada matemática no login para reduzir tentativas automatizadas.
-- Desconexão por inatividade de 7 dias sem interação do funcionário.
-- Conversas por contato (um único número WhatsApp, vários atendentes).
-- Registro de quem respondeu cada mensagem (`attendant_id`, `sender_name`).
-- Autenticação com JWT.
-- Auditoria de sessão por usuário: último login e último logout.
-- Exportação por intervalo da conversa em HTML e PDF (com identificação de cliente e autor da mensagem).
-- Exportação com imagem incorporada (quando disponível localmente), inclusive no PDF.
-- Usuário inicial automático:
-  - Nome: `Diego Veras`
-  - E-mail: `diego.veras@gmail.com`
-  - Senha: gerada na primeira inicialização.
-- Cadastro de novos usuários apenas por admin.
-- Todo usuário novo entra com `must_change_password=true` e precisa trocar a senha no primeiro acesso.
+- **Chat em tempo real** com interface moderna
+- **Integração WhatsApp** via webhooks
+- **Gerenciamento de usuários** com controle de acesso
+- **Upload de mídia** (imagens, áudios)
+- **Sistema administrativo** completo
+- **Limpeza de dados** com segurança
+- **Interface responsiva** e intuitiva
 
-## Estrutura
+## 📁 Estrutura do Projeto
 
-```text
-app/
-  api/
-    deps.py
-    routes/
-      auth.py
-      conversations.py
-      health.py
-      users.py
-      webhook.py
-  core/config.py
-  db/
-    base.py
-    session.py
-  models/
-    conversation.py
-    message.py
-    user.py
-  schemas/
-    auth.py
-    conversation.py
-    message.py
-    user.py
-  services/
-    bootstrap.py
-    messages.py
-    runtime_settings.py
-  utils/security.py
-  main.py
+```
+chatZapUFPB/
+├── app/                    # Aplicação principal
+│   ├── api/               # Endpoints da API
+│   │   ├── routes/        # Rotas da API
+│   │   └── dependencies.py # Dependências FastAPI
+│   ├── core/              # Configuração principal
+│   │   ├── app_factory.py # Fábrica da aplicação
+│   │   ├── config.py      # Configurações
+│   │   └── security.py    # Segurança
+│   ├── db/                # Banco de dados
+│   │   ├── base.py        # Modelo base
+│   │   └── session.py     # Sessão DB
+│   ├── models/            # Models SQLAlchemy
+│   │   ├── user.py        # Modelo de usuário
+│   │   ├── message.py     # Modelo de mensagem
+│   │   ├── conversation.py # Modelo de conversa
+│   │   └── runtime_settings.py # Configurações runtime
+│   ├── schemas/           # Schemas Pydantic
+│   │   ├── user.py        # Schemas de usuário
+│   │   ├── message.py     # Schemas de mensagem
+│   │   └── admin.py       # Schemas admin
+│   ├── services/          # Lógica de negócio
+│   │   ├── auth.py        # Autenticação
+│   │   ├── media.py       # Processamento de mídia
+│   │   └── runtime_settings.py # Config. runtime
+│   ├── static/            # Arquivos estáticos
+│   │   └── inbox/         # Interface web
+│   │       ├── index.html # Página principal
+│   │       ├── app.js     # Lógica frontend
+│   │       └── styles.css # Estilos
+│   └── utils/             # Utilitários
+│       ├── logging.py     # Configuração de logs
+│       └── validators.py  # Validadores
+├── uploads/               # Arquivos upload
+├── runtime/               # Arquivos runtime
+├── logs/                  # Logs da aplicação
+├── scripts/               # Scripts auxiliares
+├── .env                   # Variáveis ambiente
+├── .env.example          # Exemplo de .env
+├── docker-compose.yml     # Docker Compose
+├── Dockerfile            # Docker image
+└── requirements.txt       # Dependências Python
 ```
 
-## Subir o projeto
+## 🛠️ Instalação
 
-1. Revise o arquivo `.env`.
-2. Suba os containers:
+### Pré-requisitos
+- Docker e Docker Compose
+- Python 3.11+ (para desenvolvimento local)
 
+### Com Docker (Recomendado)
+
+1. **Clone o repositório**
+```bash
+git clone <repository-url>
+cd chatZapUFPB
+```
+
+2. **Configure as variáveis ambiente**
+```bash
+cp .env.example .env
+# Edite .env com suas configurações
+```
+
+3. **Inicie os serviços**
 ```bash
 docker compose up -d --build
 ```
 
-3. Abra:
-   - Inbox web: `http://localhost:8000/inbox`
-   - API: `http://localhost:8000`
-   - Swagger: `http://localhost:8000/docs`
+4. **Acesse a aplicação**
+- Frontend: http://localhost:8000/inbox/
+- API: http://localhost:8000/api/v1/docs
 
-## Senha inicial do Diego
+### Desenvolvimento Local
 
-Na primeira execução, a senha gerada é salva em:
-
-```text
-runtime/admin_bootstrap.txt
+1. **Instale dependências**
+```bash
+pip install -r requirements.txt
 ```
 
-Depois, entre na inbox `http://localhost:8000/inbox` e faça login com este e-mail/senha.
-
-## Primeiros passos (ordem recomendada)
-
-1. Configure o `.env`:
-   - Troque `SECRET_KEY`.
-   - Defina `WEBHOOK_TOKEN` (recomendado).
-   - Defina `N8N_OUTBOUND_WEBHOOK_URL`.
-   - Defina `N8N_OUTBOUND_AUTH_TYPE` e as credenciais de saída correspondentes.
-2. Suba a stack:
-   - `docker compose up -d --build`
-3. Pegue a senha inicial do Diego:
-   - arquivo `runtime/admin_bootstrap.txt`
-4. Faça login no navegador:
-   - `http://localhost:8000/inbox`
-   - botão `Senha` permite alterar a senha a qualquer momento.
-   - login exige resposta de uma charada matemática simples.
-   - sessão expira por inatividade de 7 dias sem interação do funcionário.
-5. Com o usuário Diego, cadastre os atendentes:
-   - pela própria área admin da inbox (ou API `POST /api/v1/users`).
-6. Cada atendente entra na inbox e, no primeiro login, troca a senha obrigatoriamente.
-7. Na inbox, seção `Admin: Usuários`, o administrador pode:
-   - adicionar usuário,
-   - excluir usuário,
-   - resetar senha (forçando troca no próximo login),
-   - ativar/desativar usuário,
-   - listar usuários ativos,
-   - acompanhar último login/logout (exibição em horário de Recife).
-8. Configure o n8n para enviar o webhook de entrada da EvolutionAPI para:
-   - `POST /api/v1/webhooks/evolution`
-   - Header opcional: `x-webhook-token: <WEBHOOK_TOKEN>`
-9. Operação diária:
-   - atendente seleciona conversa no painel esquerdo e responde no painel principal.
-   - imagem: selecione `Imagem` e use `Enviar imagem local`.
-   - áudio: selecione `Áudio` e use `Gravar áudio`.
-   - vídeo: selecione `Vídeo` e use `Gravar vídeo`.
-   - para exportar uma conversa do dia, use `Exportar dia desta mensagem` em qualquer bolha e escolha intervalo (00:00-23:59 por padrão, editável), perfil do cliente e formato HTML/PDF.
-   - perfis disponíveis: `Aluno`, `Professor`, `Funcionário`, `Externo`, `Ex-aluno`, `Múltiplos`, `Indefinido` (padrão).
-
-## Segurança mínima recomendada
-
-- Trocar `SECRET_KEY` no `.env`.
-- Definir `WEBHOOK_TOKEN` e enviar no header `x-webhook-token`.
-- Para saída app -> n8n, usar autenticação no webhook de saída (preferencialmente `Header Auth` com token forte e rotativo).
-- Rodar atrás de reverse proxy HTTPS.
-
-## Configuração n8n (Webhook + HTTP Request)
-
-Fluxo n8n sugerido:
-
-```text
-Webhook (EvolutionAPI)
-  -> Function (normalização)
-  -> HTTP Request
-  -> FastAPI (/webhook)
+2. **Configure o banco de dados**
+```bash
+# Configure PostgreSQL no .env
+# Execute as migrações se necessário
 ```
 
-### Endpoint para usar no HTTP Request do n8n
-
-- Recomendado: `POST https://SEU_NGROK/webhook`
-- Alias aceito: `POST https://SEU_NGROK/api/inbox`
-- Endpoint legado ainda válido: `POST https://SEU_NGROK/api/v1/webhooks/evolution`
-
-Não use `https://SEU_NGROK/inbox` para webhook de entrada, porque `/inbox` é a interface HTML.
-
-### n8n -> app (entrada)
-
-No `.env`, mantenha a URL de entrada operacional registrada:
-
-- `N8N_INBOUND_WEBHOOK_URL` (ex.: `https://workflow.vqautomacao.com.br/webhook/entrada_chat_UFPB`)
-
-Importante:
-
-- Use URL de produção do n8n (`/webhook/...`) para operação contínua.
-- A URL de teste (`/webhook-test/...`) exige clicar em `Execute workflow` e não é estável para produção.
-
-Se token estiver configurado no app, envie:
-
-```text
-x-token: ufpb_secret
+3. **Inicie a aplicação**
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Também é aceito:
+## 🔧 Configuração
 
-```text
-x-webhook-token: ufpb_secret
+### Variáveis Ambiente (.env)
+
+```env
+# Banco de Dados
+DATABASE_URL=postgresql+psycopg2://user:password@localhost:5432/dbname
+
+# Segurança
+SECRET_KEY=your-secret-key-here
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Administrador
+ADMIN_NAME=Nome Admin
+ADMIN_EMAIL=admin@ufpb.br
+ADMIN_PASSWORD=secure_password
+
+# WhatsApp
+N8N_WEBHOOK_URL=http://localhost:5678/webhook/whatsapp
+WEBHOOK_TOKEN=your-webhook-token
+
+# CORS
+CORS_ORIGINS=http://localhost:8000,http://localhost:3000
 ```
 
-No nó `HTTP Request` do n8n (que chama seu app):
+## 📚 Documentação da API
 
-- `Method`: `POST`
-- `URL`: `https://SEU_NGROK/webhook`
-- `Authentication`: `None` (o controle será pelo header do token)
-- `Header`: `x-token: <TOKEN_ENTRADA_CONFIGURADO_NO_APP>`
+Acesse a documentação interativa em:
+- Swagger UI: http://localhost:8000/api/v1/docs
+- ReDoc: http://localhost:8000/api/v1/redoc
 
-### app -> n8n (saída)
+## 🔐 Autenticação
 
-Configure no `.env` da aplicação:
+O sistema usa JWT para autenticação:
 
-- `N8N_OUTBOUND_WEBHOOK_URL`: URL do Webhook Trigger do n8n (ex.: `https://workflow.vqautomacao.com.br/webhook/saida_chat_UFPB`)
-- `N8N_OUTBOUND_AUTH_TYPE`: `header` (recomendado), `basic`, `jwt` ou `none`
-- Se `header`: `N8N_OUTBOUND_AUTH_HEADER_NAME` e `N8N_OUTBOUND_AUTH_HEADER_VALUE`
-- Se `basic`: `N8N_OUTBOUND_AUTH_BASIC_USERNAME` e `N8N_OUTBOUND_AUTH_BASIC_PASSWORD`
-- Se `jwt`: `N8N_OUTBOUND_AUTH_JWT_TOKEN`
+1. **Challenge-Response**: Sistema de charadas para login
+2. **Token JWT**: Sessão segura com expiração
+3. **Roles**: Usuário comum vs Administrador
 
-No Webhook Trigger do n8n, configure o mesmo modo selecionado no app:
+## 🎯 Principais Endpoints
 
-- Se usar `Header Auth`: `Authentication = Header Auth`, mesmo header e mesmo valor.
-- Se usar `Basic Auth`: `Authentication = Basic Auth`, mesmo usuário/senha.
-- Se usar `JWT Auth`: `Authentication = Header Auth` com `Authorization: Bearer <jwt>`.
+### Autenticação
+- `GET /api/v1/auth/challenge` - Obter charada
+- `POST /api/v1/auth/login` - Fazer login
+- `POST /api/v1/auth/logout` - Fazer logout
 
-### Corpo JSON mínimo aceito
+### Usuários (Admin)
+- `GET /api/v1/users` - Listar usuários
+- `POST /api/v1/users` - Criar usuário
+- `PATCH /api/v1/users/{id}/status` - Ativar/Desativar
+- `DELETE /api/v1/users/{id}` - Excluir usuário
 
-```json
-{
-  "name": "Aluno João",
-  "phone": "5583999999999",
-  "type": "text",
-  "message": "Olá"
-}
+### Conversas
+- `GET /api/v1/conversations` - Listar conversas
+- `GET /api/v1/conversations/{id}/messages` - Mensagens
+- `POST /api/v1/conversations/{id}/export` - Exportar
+
+### Upload de Mídia
+- `POST /api/v1/uploads/media` - Upload de arquivos
+- `GET /uploads/{filename}` - Acessar arquivos
+
+### Administração
+- `DELETE /api/v1/admin/cleanup/messages` - Limpar mensagens
+- `DELETE /api/v1/admin/cleanup/uploads` - Limpar uploads
+
+## 🎨 Interface Web
+
+### Features
+- **Chat em tempo real** com polling inteligente
+- **Upload arrastar-e-soltar**
+- **Gravação de áudio** com visualizador
+- **Interface responsiva**
+- **Notificações toast**
+- **Scroll infinito**
+
+### Acessibilidade
+- Navegação por teclado
+- Contraste adequado
+- Feedback visual claro
+- Mensagens de erro informativas
+
+## 🔒 Segurança
+
+### Implementações
+- **JWT tokens** com expiração
+- **Password hashing** bcrypt
+- **CORS configurado**
+- **SQL injection protection** via ORM
+- **XSS protection** no frontend
+- **Rate limiting** (recomendado)
+
+### Boas Práticas
+- Validação de entrada
+- Sanitização de dados
+- Logs de auditoria
+- Backup automático
+- Monitoramento
+
+## 📊 Monitoramento
+
+### Logs
+- **Aplicação**: `/app/logs/`
+- **Nível**: INFO, WARNING, ERROR
+- **Rotação**: Configurável
+- **Formato**: Estruturado
+
+### Health Checks
+- **API**: `/health`
+- **Database**: Verificação de conexão
+- **FFmpeg**: Verificação de dependências
+
+## 🚀 Deploy
+
+### Produção
+1. Configure variáveis ambiente
+2. Use HTTPS
+3. Configure backup
+4. Monitore logs
+5. Atualize regularmente
+
+### Docker
+```bash
+# Build produção
+docker build -t ufpb-chat .
+
+# Run produção
+docker run -d --name ufpb-chat -p 8000:8000 ufpb-chat
 ```
+
+## 🤝 Contribuição
+
+1. Fork o projeto
+2. Crie branch feature
+3. Commit mudanças
+4. Push para branch
+5. Abra Pull Request
+
+### Padrões
+- **Python**: PEP 8
+- **JavaScript**: ES6+
+- **CSS**: BEM methodology
+- **Commits**: Conventional Commits
+
+## 📝 Licença
+
+Este projeto é propriedade da UFPB.
+
+## 🆘 Suporte
+
+Para suporte técnico:
+- Equipe de TI da UFPB
+- Documentação interna
+- Sistema de tickets
+
+---
+
+**Versão**: 2.0.0  
+**Última atualização**: 2026-04-06  
+**Maintainer**: Equipe UFPB Chat

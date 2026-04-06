@@ -16,13 +16,19 @@ services:
       - postgres_data:/var/lib/postgresql/data
 
   app:
-    build: .
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+        - VERSION=${VERSION:-2.0.0}
     container_name: ufpb_app
     restart: unless-stopped
     env_file:
       - .env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://ufpb:ufpb123@db:5432/ufpb_chat}
+      PYTHONPATH: /app
     depends_on:
       db:
         condition: service_healthy
@@ -31,6 +37,13 @@ services:
     volumes:
       - ./uploads:/app/uploads
       - ./runtime:/app/runtime
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import subprocess; subprocess.run(['ffmpeg', '-version'], check=True, timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   postgres_data:

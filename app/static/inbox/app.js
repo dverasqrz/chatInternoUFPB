@@ -6,7 +6,6 @@ const state = {
   selectedConversationId: null,
   conversations: [],
   messageSignaturesByConversation: {},
-  selectedMessageIds: new Set(),
   pendingMessageRefresh: null,
   passwordForced: false,
   loginChallengeId: null,
@@ -17,6 +16,17 @@ const state = {
   messagePollTimer: null,
   conversationPollTimer: null,
   exportContext: null,
+  // Infinite scroll state
+  messagesByConversation: {},
+  messageOffsets: {},
+  isLoadingMessages: false,
+  hasMoreMessages: {},
+  messagesPerPage: 50,
+  // Audio visualizer state
+  audioContext: null,
+  analyser: null,
+  microphone: null,
+  animationId: null,
 };
 
 const els = {
@@ -52,13 +62,8 @@ const els = {
   conversationList: document.getElementById("conversationList"),
   chatTitle: document.getElementById("chatTitle"),
   chatSubtitle: document.getElementById("chatSubtitle"),
+  exportCurrentDayBtn: document.getElementById("exportCurrentDayBtn"),
   messageCountBadge: document.getElementById("messageCountBadge"),
-  adminMessageTools: document.getElementById("adminMessageTools"),
-  selectAllMessagesCheckbox: document.getElementById("selectAllMessagesCheckbox"),
-  selectedMessagesCount: document.getElementById("selectedMessagesCount"),
-  deleteCurrentConversationMessagesBtn: document.getElementById("deleteCurrentConversationMessagesBtn"),
-  deleteSelectedMessagesBtn: document.getElementById("deleteSelectedMessagesBtn"),
-  deleteAllMessagesBtn: document.getElementById("deleteAllMessagesBtn"),
   messages: document.getElementById("messages"),
   messageType: document.getElementById("messageType"),
   textRow: document.getElementById("textRow"),
@@ -73,8 +78,7 @@ const els = {
   imageFileInput: document.getElementById("imageFileInput"),
   uploadImageBtn: document.getElementById("uploadImageBtn"),
   recordAudioBtn: document.getElementById("recordAudioBtn"),
-  recordVideoBtn: document.getElementById("recordVideoBtn"),
-  sendMessageBtn: document.getElementById("sendMessageBtn"),
+    sendMessageBtn: document.getElementById("sendMessageBtn"),
   recordOverlay: document.getElementById("recordOverlay"),
   recordTitle: document.getElementById("recordTitle"),
   recordHelp: document.getElementById("recordHelp"),
@@ -83,6 +87,10 @@ const els = {
   cancelRecordBtn: document.getElementById("cancelRecordBtn"),
   startRecordBtn: document.getElementById("startRecordBtn"),
   stopRecordBtn: document.getElementById("stopRecordBtn"),
+  audioVisualizer: document.getElementById("audioVisualizer"),
+  audioCanvas: document.getElementById("audioCanvas"),
+  audioPreview: document.getElementById("audioPreview"),
+  audioPlayer: document.getElementById("audioPlayer"),
   exportOverlay: document.getElementById("exportOverlay"),
   exportDate: document.getElementById("exportDate"),
   exportStartTime: document.getElementById("exportStartTime"),
@@ -92,6 +100,7 @@ const els = {
   closeExportBtn: document.getElementById("closeExportBtn"),
   downloadHtmlBtn: document.getElementById("downloadHtmlBtn"),
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
+  cleanupSystemBtn: document.getElementById("cleanupSystemBtn"),
   toast: document.getElementById("toast"),
 };
 
@@ -108,17 +117,54 @@ function clearSession() {
   state.selectedConversationId = null;
   state.conversations = [];
   state.messageSignaturesByConversation = {};
-  state.selectedMessageIds = new Set();
   state.pendingMessageRefresh = null;
   state.loginChallengeId = null;
   localStorage.removeItem("ufpb_token");
   localStorage.removeItem("ufpb_user");
 }
 
-function showToast(message) {
+function showToast(message, type = 'error', duration = 8000) {
   els.toast.textContent = message;
+  els.toast.className = `toast toast-${type}`;
   els.toast.classList.remove("hidden");
-  setTimeout(() => els.toast.classList.add("hidden"), 2800);
+  
+  // Limpa timeout anterior se existir
+  if (window.toastTimeout) {
+    clearTimeout(window.toastTimeout);
+  }
+  
+  // Remove toast após o tempo especificado
+  window.toastTimeout = setTimeout(() => {
+    els.toast.classList.add("hidden");
+    window.toastTimeout = null;
+  }, duration);
+}
+
+function showErrorToast(message) {
+  showToast(message, 'error', 10000); // Erros ficam 10 segundos
+}
+
+function showSuccessToast(message) {
+  showToast(message, 'success', 5000);
+}
+
+function showInfoToast(message) {
+  showToast(message, 'info', 6000);
+}
+
+function showLoadingIndicator() {
+  const loadingDiv = document.createElement('div');
+  loadingDiv.id = 'messagesLoading';
+  loadingDiv.className = 'messages-loading';
+  loadingDiv.innerHTML = '<div class="loading-spinner"></div><span>Carregando mais mensagens...</span>';
+  els.messages.appendChild(loadingDiv);
+}
+
+function hideLoadingIndicator() {
+  const loadingDiv = document.getElementById('messagesLoading');
+  if (loadingDiv) {
+    loadingDiv.remove();
+  }
 }
 
 function escapeHtml(raw) {
@@ -138,36 +184,11 @@ function updateUserHeader() {
     els.currentUserName.textContent = "-";
     els.currentUserEmail.textContent = "-";
     els.adminSection.classList.add("hidden");
-    els.adminMessageTools.classList.add("hidden");
     return;
   }
   els.currentUserName.textContent = state.user.name;
   els.currentUserEmail.textContent = state.user.email;
   els.adminSection.classList.toggle("hidden", !state.user.is_admin);
-  refreshAdminMessageTools();
-}
-
-function updateSelectedMessagesLabel() {
-  const count = state.selectedMessageIds.size;
-  els.selectedMessagesCount.textContent = `${count} selecionadas`;
-  els.deleteSelectedMessagesBtn.disabled = count === 0;
-}
-
-function clearSelectedMessages() {
-  state.selectedMessageIds = new Set();
-  els.selectAllMessagesCheckbox.checked = false;
-  updateSelectedMessagesLabel();
-}
-
-function refreshAdminMessageTools() {
-  const showTools = Boolean(state.user?.is_admin && state.selectedConversationId);
-  els.adminMessageTools.classList.toggle("hidden", !showTools);
-  els.deleteCurrentConversationMessagesBtn.disabled = !showTools;
-  if (!showTools) {
-    clearSelectedMessages();
-    return;
-  }
-  updateSelectedMessagesLabel();
 }
 
 async function apiRequest(path, options = {}) {
@@ -198,8 +219,17 @@ async function apiRequest(path, options = {}) {
     throw authError;
   }
   if (!response.ok) {
-    const requestError = new Error(data.detail || "Erro na requisição.");
+    const requestError = new Error(data.detail || `Erro na requisição (${response.status}).`);
     requestError.status = response.status;
+    requestError.responseData = data;
+    requestError.responseText = text;
+    console.error('API Error Details:', {
+      status: response.status,
+      url: `${apiPrefix}${path}`,
+      data: data,
+      text: text,
+      headers: headers
+    });
     throw requestError;
   }
   return data;
@@ -232,12 +262,23 @@ function formatDateRecife(dateText) {
 }
 
 function hasActiveMediaPlayback() {
-  const mediaElements = els.messages.querySelectorAll("audio, video");
-  for (const mediaElement of mediaElements) {
+  const audioElements = els.messages.querySelectorAll("audio");
+  const videoElements = els.messages.querySelectorAll("video");
+  
+  // Verificar áudios
+  for (const mediaElement of audioElements) {
     if (!mediaElement.paused && !mediaElement.ended) {
       return true;
     }
   }
+  
+  // Verificar vídeos
+  for (const mediaElement of videoElements) {
+    if (!mediaElement.paused && !mediaElement.ended) {
+      return true;
+    }
+  }
+  
   return false;
 }
 
@@ -266,8 +307,7 @@ function setComposerVisibility() {
   els.mediaActionsRow.classList.toggle("hidden", isText);
   els.uploadImageBtn.classList.toggle("hidden", type !== "image");
   els.recordAudioBtn.classList.toggle("hidden", type !== "audio");
-  els.recordVideoBtn.classList.toggle("hidden", type !== "video");
-}
+  }
 
 function resetComposer() {
   els.messageType.value = "text";
@@ -289,8 +329,10 @@ function clearPolls() {
   }
 }
 
-async function fetchLoginChallenge() {
+async function fetchLoginChallenge(autoGenerate = false) {
   try {
+    console.log('Buscando nova charada... autoGenerate:', autoGenerate);
+    
     const response = await fetch(`${apiPrefix}/auth/challenge?ts=${Date.now()}`, {
       method: "GET",
       cache: "no-store",
@@ -299,15 +341,44 @@ async function fetchLoginChallenge() {
         Pragma: "no-cache",
       },
     });
+    
+    console.log('Challenge response status:', response.status);
+    
     if (!response.ok) {
-      throw new Error("Falha ao obter charada.");
+      throw new Error(`Falha ao obter charada (${response.status}).`);
     }
+    
     const challenge = await response.json();
+    console.log('Challenge recebida:', challenge);
+    
+    if (!challenge.challenge_id || !challenge.question) {
+      throw new Error("Resposta da charada inválida.");
+    }
+    
     state.loginChallengeId = challenge.challenge_id;
     els.challengeQuestion.textContent = `${challenge.question} (expira em ${challenge.expires_in_seconds}s)`;
-  } catch {
+    els.challengeAnswer.value = "";
+    els.loginError.textContent = "";
+    
+    console.log('Charada carregada com sucesso:', {
+      id: challenge.challenge_id,
+      question: challenge.question,
+      expires_in: challenge.expires_in_seconds
+    });
+    
+  } catch (error) {
+    console.error('Challenge Error:', error);
     state.loginChallengeId = null;
     els.challengeQuestion.textContent = "Não foi possível carregar charada. Atualize a página.";
+    els.loginError.textContent = "Erro ao carregar charada. Tente novamente.";
+    
+    // Só tenta novamente automaticamente se for erro de conexão E se for chamada automaticamente
+    if (autoGenerate && (error.message?.includes('fetch') || error.message?.includes('network'))) {
+      setTimeout(() => {
+        console.log('Tentando carregar charada novamente...');
+        fetchLoginChallenge(true);
+      }, 2000);
+    }
   }
 }
 
@@ -340,15 +411,97 @@ function stopActiveStream() {
 }
 
 function closeRecordModal() {
-  stopActiveStream();
-  if (els.recordPreview.srcObject) {
-    els.recordPreview.srcObject = null;
-  }
+  // Parar visualizador
+  stopAudioVisualizer();
+  
+  // Parar gravação
+  state.activeRecorder?.stop();
+  state.activeStream?.getTracks().forEach((t) => t.stop());
   state.activeRecorder = null;
   state.recordKind = null;
+  
+  // Esconder modal
   els.recordOverlay.classList.add("hidden");
   els.startRecordBtn.classList.remove("hidden");
   els.stopRecordBtn.classList.add("hidden");
+  els.audioVisualizer.classList.add("hidden");
+  els.audioPreview.classList.add("hidden");
+}
+
+function startAudioVisualizer() {
+  try {
+    // Criar contexto de áudio
+    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    state.analyser = state.audioContext.createAnalyser();
+    state.analyser.fftSize = 256;
+    
+    // Conectar microfone ao analisador
+    const source = state.audioContext.createMediaStreamSource(state.activeStream);
+    source.connect(state.analyser);
+    
+    // Mostrar visualizador
+    els.audioVisualizer.classList.remove("hidden");
+    
+    // Iniciar animação
+    drawWaveform();
+  } catch (error) {
+    console.error('Erro ao iniciar visualizador:', error);
+  }
+}
+
+function drawWaveform() {
+  if (!state.analyser) return;
+  
+  const canvas = els.audioCanvas;
+  const ctx = canvas.getContext('2d');
+  const bufferLength = state.analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  
+  function draw() {
+    state.animationId = requestAnimationFrame(draw);
+    
+    state.analyser.getByteFrequencyData(dataArray);
+    
+    // Limpar canvas
+    ctx.fillStyle = '#0c1f19';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Desenhar ondas
+    const barWidth = (canvas.width / bufferLength) * 2.5;
+    let barHeight;
+    let x = 0;
+    
+    for (let i = 0; i < bufferLength; i++) {
+      barHeight = (dataArray[i] / 255) * canvas.height * 0.8;
+      
+      // Cor verde para as ondas
+      const r = 34 + (dataArray[i] / 255) * 50;
+      const g = 197 + (dataArray[i] / 255) * 58;
+      const b = 94 + (dataArray[i] / 255) * 50;
+      
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+      
+      x += barWidth + 1;
+    }
+  }
+  
+  draw();
+}
+
+function stopAudioVisualizer() {
+  if (state.animationId) {
+    cancelAnimationFrame(state.animationId);
+    state.animationId = null;
+  }
+  
+  if (state.audioContext) {
+    state.audioContext.close();
+    state.audioContext = null;
+  }
+  
+  state.analyser = null;
+  state.microphone = null;
 }
 
 function mapMediaError(error, kind) {
@@ -375,8 +528,8 @@ function openRecordModal(kind) {
   els.stopRecordBtn.classList.add("hidden");
 
   if (kind === "audio") {
-    els.recordTitle.textContent = "Gravar áudio";
-    els.recordHelp.textContent = "Clique em iniciar e permita acesso ao microfone.";
+    els.recordTitle.textContent = "Gravar Áudio";
+    els.recordHelp.textContent = "Clique em 'Iniciar Gravação' e permita acesso ao microfone.";
     els.recordPreview.classList.add("hidden");
     els.recordPreview.srcObject = null;
   } else {
@@ -418,22 +571,30 @@ async function startRecording() {
     return;
   }
 
+  // Atualizar texto para mostrar que estamos solicitando permissão
+  els.recordHelp.textContent = "Solicitando permissão do microfone...";
+
   const confirmed = window.confirm(
     kind === "audio" ? "Deseja autorizar a gravação de áudio?" : "Deseja autorizar a gravação de vídeo?"
   );
   if (!confirmed) {
+    els.recordHelp.textContent = "Clique em 'Iniciar Gravação' e permita acesso ao microfone.";
     return;
   }
 
   try {
-    const constraints = kind === "audio" ? { audio: true, video: false } : { audio: true, video: true };
+    // Only audio recording is supported - video recording removed
+    if (kind === "video") {
+      els.recordError.textContent = "Video recording is no longer supported. Please use audio only.";
+      els.recordError.classList.remove("hidden");
+      return;
+    }
+    
+    const constraints = { audio: true, video: false };
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     state.activeStream = stream;
-    if (kind === "video") {
-      els.recordPreview.srcObject = stream;
-    }
 
-    const preferredMime = kind === "audio" ? "audio/webm" : "video/webm";
+    const preferredMime = "audio/webm";
     const options = MediaRecorder.isTypeSupported(preferredMime) ? { mimeType: preferredMime } : {};
     const recorder = new MediaRecorder(stream, options);
     const chunks = [];
@@ -452,15 +613,15 @@ async function startRecording() {
           return;
         }
         try {
-          const mimeType = options.mimeType || (kind === "audio" ? "audio/webm" : "video/webm");
+          const mimeType = options.mimeType || "audio/webm";
           const blob = new Blob(chunks, { type: mimeType });
-          const file = new File([blob], `${kind}-${Date.now()}.webm`, { type: mimeType });
+          const file = new File([blob], `audio-${Date.now()}.webm`, { type: mimeType });
           const uploaded = await uploadMediaFile(file);
-          els.messageType.value = kind;
+          els.messageType.value = "audio";
           setComposerVisibility();
           els.mediaUrl.value = uploaded.media_url;
           els.mediaMimeType.value = uploaded.mime_type || mimeType;
-          showToast(`${kind === "audio" ? "Áudio" : "Vídeo"} anexado com sucesso.`);
+          showSuccessToast("Áudio anexado com sucesso.");
         } catch (error) {
           showToast(error.message || "Falha ao anexar gravação.");
         } finally {
@@ -471,8 +632,14 @@ async function startRecording() {
 
     state.activeRecorder = recorder;
     recorder.start();
+    
+    // Iniciar visualizador de áudio
+    startAudioVisualizer();
+    
+    // Atualizar UI
     els.startRecordBtn.classList.add("hidden");
     els.stopRecordBtn.classList.remove("hidden");
+    els.recordHelp.textContent = "Gravando... clique em 'Parar e Anexar' quando terminar.";
   } catch (error) {
     els.recordError.textContent = mapMediaError(error, kind);
     stopActiveStream();
@@ -506,7 +673,7 @@ async function uploadImageFromLocal(file) {
     setComposerVisibility();
     els.mediaUrl.value = uploaded.media_url;
     els.mediaMimeType.value = uploaded.mime_type || "image/*";
-    showToast("Imagem anexada.");
+    showSuccessToast("Imagem anexada.");
   } catch (error) {
     showToast(error.message || "Falha ao enviar imagem.");
   } finally {
@@ -562,7 +729,7 @@ async function createUserFromAdmin() {
   els.newUserEmail.value = "";
   els.newUserPassword.value = "";
   await loadAdminUsers();
-  showToast("Usuário criado.");
+  showSuccessToast("Usuário criado.");
 }
 
 async function handleAdminUserAction(action, userId) {
@@ -574,7 +741,7 @@ async function handleAdminUserAction(action, userId) {
       body: JSON.stringify({ is_active: activate }),
     });
     await loadAdminUsers();
-    showToast(activate ? "Usuário ativado." : "Usuário desativado.");
+    showSuccessToast(activate ? "Usuário ativado." : "Usuário desativado.");
     return;
   }
   if (action === "reset-password") {
@@ -590,7 +757,7 @@ async function handleAdminUserAction(action, userId) {
       method: "POST",
       body: JSON.stringify({ new_password: newPassword }),
     });
-    showToast("Senha resetada. O usuário trocará no próximo login.");
+    showSuccessToast("Senha resetada. O usuário trocará no próximo login.");
     await loadAdminUsers();
     return;
   }
@@ -601,6 +768,52 @@ async function handleAdminUserAction(action, userId) {
     await apiRequest(`/users/${userId}`, { method: "DELETE" });
     await loadAdminUsers();
     showToast("Usuário excluído.");
+  }
+}
+
+async function cleanupSystem() {
+  if (!window.confirm("⚠️ CONFIRMAÇÃO NECESSÁRIA\n\nEsta ação IRREVERSIVEL irá apagar:\n\n• TODAS as mensagens do sistema\n• TODOS os arquivos da pasta uploads\n\nEsta ação NÃO PODE ser desfeita!\n\nDeseja continuar?")) {
+    return;
+  }
+  
+  try {
+    showInfoToast("Iniciando limpeza do sistema...");
+    
+    // Apagar todas as mensagens
+    await apiRequest("/admin/cleanup/messages", { method: "DELETE" });
+    showSuccessToast("Todas as mensagens foram apagadas.");
+    
+    // Aguardar um pouco antes de apagar os arquivos
+    setTimeout(async () => {
+      try {
+        showInfoToast("Apagando arquivos de upload...");
+        
+        // Apagar todos os arquivos de upload
+        await apiRequest("/admin/cleanup/uploads", { method: "DELETE" });
+        showSuccessToast("Todos os arquivos de upload foram apagados.");
+        
+        showSuccessToast("✅ Limpeza do sistema concluída com sucesso!");
+        
+        // Limpar interface
+        if (state.selectedConversationId) {
+          state.selectedConversationId = null;
+          els.messages.innerHTML = "<p>Sistema limpo. Selecione uma conversa.</p>";
+          els.chatTitle.textContent = "Sistema Limpo";
+          els.chatSubtitle.textContent = "Todas as mensagens foram removidas";
+        }
+        
+        // Limpar conversas
+        await loadConversations(true);
+        
+      } catch (error) {
+        console.error('Erro ao apagar arquivos:', error);
+        showErrorToast("Erro ao apagar arquivos: " + (error.message || "Erro desconhecido"));
+      }
+    }, 2000);
+    
+  } catch (error) {
+    console.error('Erro ao apagar mensagens:', error);
+    showErrorToast("Erro ao apagar mensagens: " + (error.message || "Erro desconhecido"));
   }
 }
 
@@ -642,10 +855,7 @@ function buildMessageBody(message) {
       : "";
     return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<audio class="message-audio" controls src="${safeUrl}"></audio>${encryptedHint}`;
   }
-  if (message.message_type === "video" && message.media_url) {
-    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<video class="message-video" controls src="${safeUrl}"></video>`;
-  }
-  return `<p>${safeText || "[mensagem sem conteúdo textual]"}</p>`;
+    return `<p>${safeText || "[mensagem sem conteúdo textual]"}</p>`;
 }
 
 function openExportModal(referenceTimestamp) {
@@ -753,65 +963,140 @@ async function downloadExportPdf() {
   downloadBlob(await response.blob(), filename, "application/pdf");
 }
 
-function renderMessages(messages) {
-  els.messageCountBadge.textContent = `${messages.length} mensagens`;
-  const visibleIds = new Set(messages.map((message) => message.id));
-  for (const selectedId of Array.from(state.selectedMessageIds)) {
-    if (!visibleIds.has(selectedId)) {
-      state.selectedMessageIds.delete(selectedId);
-    }
+function renderMessages(messages, options = {}) {
+  const append = Boolean(options.append);
+  const conversationId = state.selectedConversationId;
+  
+  // Atualiza contador de mensagens (sem piscamento)
+  const allMessages = append ? (state.messagesByConversation[conversationId] || []) : messages;
+  const currentCount = els.messageCountBadge.textContent;
+  const newCount = `${allMessages.length} mensagens`;
+  
+  // Só atualiza se o contador mudou
+  if (currentCount !== newCount) {
+    els.messageCountBadge.textContent = newCount;
   }
 
-  if (!messages.length) {
-    els.messages.innerHTML = "<p>Nenhuma mensagem nesta conversa.</p>";
-    refreshAdminMessageTools();
+  // Show/hide export button based on whether there are messages
+  els.exportCurrentDayBtn.classList.toggle("hidden", allMessages.length === 0);
+
+  if (!allMessages.length) {
+    if (!append) {
+      els.messages.innerHTML = "<p>Nenhuma mensagem nesta conversa.</p>";
+    }
     return;
   }
-  els.messages.innerHTML = messages
-    .map((message) => {
-      const klass = message.direction === "outbound" ? "outbound" : "inbound";
-      const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
-      const adminSelect = state.user?.is_admin
-        ? `<div class="message-select-row"><label><input type="checkbox" data-action="select-message" data-id="${message.id}" ${state.selectedMessageIds.has(message.id) ? "checked" : ""}> Selecionar</label></div>`
-        : "";
-      return `<article class="message-item ${klass}">
-          ${adminSelect}
-          <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
-          ${buildMessageBody(message)}
-          <div class="message-actions"><button class="btn btn-outline btn-small" data-action="export-message" data-created="${message.created_at}">Exportar dia desta mensagem</button></div>
-        </article>`;
-    })
-    .join("");
-  refreshAdminMessageTools();
-  if (state.user?.is_admin) {
-    const selectableCount = els.messages.querySelectorAll('[data-action="select-message"]').length;
-    const selectedCount = els.messages.querySelectorAll('[data-action="select-message"]:checked').length;
-    els.selectAllMessagesCheckbox.checked = selectableCount > 0 && selectedCount === selectableCount;
-  }
-  updateSelectedMessagesLabel();
 
-  for (const checkbox of els.messages.querySelectorAll('[data-action="select-message"]')) {
-    checkbox.addEventListener("change", () => {
-      const messageId = Number(checkbox.dataset.id);
-      if (!Number.isFinite(messageId) || messageId <= 0) {
-        return;
-      }
-      if (checkbox.checked) {
-        state.selectedMessageIds.add(messageId);
-      } else {
-        state.selectedMessageIds.delete(messageId);
-      }
-      const allCheckboxes = els.messages.querySelectorAll('[data-action="select-message"]');
-      const selectedCheckboxes = els.messages.querySelectorAll('[data-action="select-message"]:checked');
-      els.selectAllMessagesCheckbox.checked = allCheckboxes.length > 0 && allCheckboxes.length === selectedCheckboxes.length;
-      updateSelectedMessagesLabel();
+  // Se for append, adiciona as novas mensagens no final com animação suave
+  if (append) {
+    const newMessagesHtml = messages
+      .map((message) => {
+        const klass = message.direction === "outbound" ? "outbound" : "inbound";
+        const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
+        return `<article class="message-item ${klass} message-new">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
+            ${buildMessageBody(message)}
+          </article>`;
+      })
+      .join("");
+    
+    // Adiciona ao final existente
+    els.messages.insertAdjacentHTML('beforeend', newMessagesHtml);
+    
+    // Animação suave para novas mensagens
+    const newElements = els.messages.querySelectorAll('.message-new');
+    newElements.forEach(element => {
+      element.classList.add('message-new');
+      setTimeout(() => {
+        element.classList.remove('message-new');
+      }, 500);
     });
+    
+    // Rola para o final suavemente
+    setTimeout(() => {
+      els.messages.scrollTo({
+        top: els.messages.scrollHeight,
+        behavior: 'smooth'
+      });
+    }, 100);
+  } else {
+    // Renderização completa - usa fragment para evitar piscamento
+    const fragment = document.createDocumentFragment();
+    const tempDiv = document.createElement('div');
+    
+    tempDiv.innerHTML = allMessages
+      .map((message) => {
+        const klass = message.direction === "outbound" ? "outbound" : "inbound";
+        const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
+        return `<article class="message-item ${klass}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
+            ${buildMessageBody(message)}
+          </article>`;
+      })
+      .join("");
+    
+    // Move elementos para o fragment
+    while (tempDiv.firstChild) {
+      fragment.appendChild(tempDiv.firstChild);
+    }
+    
+    // Substitui conteúdo de uma vez (sem piscamento)
+    els.messages.innerHTML = '';
+    els.messages.appendChild(fragment);
   }
+  
+  // Configurar eventos de mídia
+  setupMediaEvents();
+}
 
-  for (const button of document.querySelectorAll('[data-action="export-message"]')) {
-    button.addEventListener("click", () => openExportModal(button.dataset.created));
+function setupMediaEvents() {
+  // Adicionar eventos a todos os elementos de áudio e vídeo
+  const mediaElements = els.messages.querySelectorAll("audio, video");
+  
+  mediaElements.forEach(mediaElement => {
+    // Remover eventos anteriores para evitar duplicação
+    mediaElement.removeEventListener('play', handleMediaPlay);
+    mediaElement.removeEventListener('pause', handleMediaPause);
+    mediaElement.removeEventListener('ended', handleMediaEnded);
+    
+    // Adicionar novos eventos
+    mediaElement.addEventListener('play', handleMediaPlay);
+    mediaElement.addEventListener('pause', handleMediaPause);
+    mediaElement.addEventListener('ended', handleMediaEnded);
+  });
+}
+
+function handleMediaPlay() {
+  // Mídia começou a reproduzir - polling será pausado automaticamente
+}
+
+function handleMediaPause() {
+  // Mídia pausada - polling será retomado automaticamente
+}
+
+function handleMediaEnded() {
+  // Mídia terminou - polling será retomado automaticamente
+}
+
+function exportCurrentDay() {
+  if (!state.selectedConversationId) {
+    showToast("Selecione uma conversa primeiro.");
+    return;
   }
-  els.messages.scrollTop = els.messages.scrollHeight;
+  
+  // Get today's date in local timezone
+  const today = new Date();
+  const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+  
+  // Set export modal with today's date and full day range
+  els.exportDate.value = dateStr;
+  els.exportStartTime.value = "00:00";
+  els.exportEndTime.value = "23:59";
+  els.exportProfile.value = "indefinido";
+  
+  // Open export modal
+  state.exportContext = { conversationId: state.selectedConversationId };
+  els.exportOverlay.classList.remove("hidden");
 }
 
 async function loadConversations(preserveSelection = true) {
@@ -824,11 +1109,7 @@ async function loadConversations(preserveSelection = true) {
     state.selectedConversationId = conversations[0]?.id || null;
   }
   const selectionChanged = previousSelection !== state.selectedConversationId;
-  if (selectionChanged) {
-    clearSelectedMessages();
-  }
   renderConversations();
-  refreshAdminMessageTools();
   if (state.selectedConversationId) {
     const selected = conversations.find((item) => item.id === state.selectedConversationId);
     els.chatTitle.textContent = selected?.contact_name || "Contato sem nome";
@@ -843,41 +1124,98 @@ async function loadConversations(preserveSelection = true) {
 
 async function loadMessages(options = {}) {
   const forceRender = Boolean(options.forceRender);
+  const loadMore = Boolean(options.loadMore);
+  const limit = options.limit || state.messagesPerPage;
+  
   if (!state.selectedConversationId) {
     renderMessages([]);
     return;
   }
+  
   const conversationId = state.selectedConversationId;
-  const messages = await apiRequest(`/conversations/${conversationId}/messages?limit=200`);
-  const signature = buildMessageSignature(messages);
-  const previousSignature = state.messageSignaturesByConversation[conversationId];
-
-  if (!forceRender && signature === previousSignature) {
+  
+  // Se estiver carregando mais mensagens, usa o offset existente
+  const offset = loadMore ? (state.messageOffsets[conversationId] || 0) : 0;
+  
+  // Se já estiver carregando, não faz nada
+  if (state.isLoadingMessages && !forceRender) {
     return;
   }
-
-  if (!forceRender && hasActiveMediaPlayback()) {
-    state.pendingMessageRefresh = { conversationId, signature };
-    return;
-  }
-
-  renderMessages(messages);
-  state.messageSignaturesByConversation[conversationId] = signature;
-  if (state.pendingMessageRefresh?.conversationId === conversationId) {
-    state.pendingMessageRefresh = null;
+  
+  state.isLoadingMessages = true;
+  
+  try {
+    // Mostra indicador de carregamento no final
+    if (loadMore) {
+      showLoadingIndicator();
+    }
+    
+    const messages = await apiRequest(
+      `/conversations/${conversationId}/messages?limit=${limit}&offset=${offset}`
+    );
+    
+    // Verifica se há novas mensagens antes de renderizar (otimização para evitar piscamento)
+    const currentSignature = state.messageSignaturesByConversation[conversationId];
+    const newSignature = buildMessageSignature(messages);
+    
+    // Se for loadMore, adiciona às mensagens existentes
+    if (loadMore && state.messagesByConversation[conversationId]) {
+      const existingMessages = state.messagesByConversation[conversationId];
+      const allMessages = [...existingMessages, ...messages];
+      state.messagesByConversation[conversationId] = allMessages;
+      
+      // Atualiza offset para próxima carga
+      state.messageOffsets[conversationId] = offset + messages.length;
+      
+      // Verifica se há mais mensagens
+      state.hasMoreMessages[conversationId] = messages.length === limit;
+      
+      renderMessages(allMessages, { append: true });
+    } else {
+      // Primeira carga ou refresh completo - só renderiza se houver mudanças
+      if (!forceRender && currentSignature === newSignature) {
+        // Não há novas mensagens, não renderiza para evitar piscamento
+        return;
+      }
+      
+      state.messagesByConversation[conversationId] = messages;
+      state.messageOffsets[conversationId] = messages.length;
+      state.hasMoreMessages[conversationId] = messages.length === limit;
+      
+      renderMessages(messages);
+    }
+    
+    const signature = buildMessageSignature(messages);
+    state.messageSignaturesByConversation[conversationId] = signature;
+    
+    if (state.pendingMessageRefresh?.conversationId === conversationId) {
+      state.pendingMessageRefresh = null;
+    }
+    
+  } catch (error) {
+    console.error('Error loading messages:', error);
+    showToast('Erro ao carregar mensagens.');
+  } finally {
+    state.isLoadingMessages = false;
+    if (loadMore) {
+      hideLoadingIndicator();
+    }
   }
 }
 
 async function selectConversation(id) {
-  if (state.selectedConversationId !== id) {
-    clearSelectedMessages();
-  }
   state.selectedConversationId = id;
   renderConversations();
-  refreshAdminMessageTools();
   const selected = state.conversations.find((item) => item.id === id);
   els.chatTitle.textContent = selected?.contact_name || "Contato sem nome";
   els.chatSubtitle.textContent = selected?.contact_phone || "-";
+  
+  // Limpa estado do scroll infinito ao trocar de conversa
+  state.messagesByConversation[id] = [];
+  state.messageOffsets[id] = 0;
+  state.hasMoreMessages[id] = true;
+  state.isLoadingMessages = false;
+  
   await loadMessages({ forceRender: true });
 }
 
@@ -918,93 +1256,37 @@ async function sendMessage() {
   await loadConversations(true);
 }
 
-async function deleteSelectedMessagesFromConversation() {
-  if (!state.user?.is_admin) {
-    showToast("Apenas administrador pode apagar mensagens.");
-    return;
-  }
-  if (!state.selectedConversationId) {
-    showToast("Selecione uma conversa.");
-    return;
-  }
-  const selectedIds = Array.from(state.selectedMessageIds);
-  if (!selectedIds.length) {
-    showToast("Selecione ao menos uma mensagem.");
-    return;
-  }
-  if (!window.confirm(`Confirma apagar ${selectedIds.length} mensagem(ns) selecionada(s)?`)) {
-    return;
-  }
-
-  const result = await apiRequest(`/conversations/${state.selectedConversationId}/messages/delete-selected`, {
-    method: "POST",
-    body: JSON.stringify({ message_ids: selectedIds }),
-  });
-
-  clearSelectedMessages();
-  delete state.messageSignaturesByConversation[state.selectedConversationId];
-  await loadConversations(true);
-  showToast(`${result.deleted_count || selectedIds.length} mensagem(ns) apagada(s).`);
-}
-
-async function deleteAllMessagesFromCurrentConversation() {
-  if (!state.user?.is_admin) {
-    showToast("Apenas administrador pode apagar mensagens.");
-    return;
-  }
-  if (!state.selectedConversationId) {
-    showToast("Selecione uma conversa.");
-    return;
-  }
-
-  const confirmed = window.confirm(
-    "Isso vai apagar todas as mensagens da conversa selecionada. Deseja continuar?"
-  );
-  if (!confirmed) {
-    return;
-  }
-
-  const result = await apiRequest(`/conversations/${state.selectedConversationId}/messages/all`, {
-    method: "DELETE",
-  });
-
-  clearSelectedMessages();
-  delete state.messageSignaturesByConversation[state.selectedConversationId];
-  await loadConversations(true);
-  showToast(`${result.deleted_count || 0} mensagem(ns) apagada(s) desta conversa.`);
-}
-
-async function deleteAllMessagesForTesting() {
-  if (!state.user?.is_admin) {
-    showToast("Apenas administrador pode apagar mensagens.");
-    return;
-  }
-  const confirmed = window.confirm(
-    "Isso vai apagar TODAS as mensagens do sistema (todas as conversas). Deseja continuar?"
-  );
-  if (!confirmed) {
-    return;
-  }
-
-  const result = await apiRequest("/conversations/messages/all", { method: "DELETE" });
-  clearSelectedMessages();
-  state.messageSignaturesByConversation = {};
-  await loadConversations(true);
-  showToast(`${result.deleted_count || 0} mensagem(ns) apagada(s) no total.`);
-}
-
 async function login(email, password) {
+  // Só gera nova charada se não tiver uma válida
   if (!state.loginChallengeId) {
-    await fetchLoginChallenge();
+    console.log('Nenhuma charada carregada, gerando nova...');
+    await fetchLoginChallenge(true);
   }
+  
+  // Validações básicas
+  if (!email || !password) {
+    throw new Error("E-mail e senha são obrigatórios.");
+  }
+  
+  if (!state.loginChallengeId) {
+    throw new Error("Charada não carregada. Aguarde...");
+  }
+  
   const challengeAnswer = els.challengeAnswer.value.trim();
   if (!challengeAnswer) {
     throw new Error("Responda a charada antes de entrar.");
   }
+  
+  console.log('Enviando login:', {
+    email: email.trim(),
+    challenge_id: state.loginChallengeId,
+    challenge_answer: challengeAnswer
+  });
+  
   const result = await apiRequest("/auth/login", {
     method: "POST",
     body: JSON.stringify({
-      email,
+      email: email.trim(),
       password,
       challenge_id: state.loginChallengeId,
       challenge_answer: challengeAnswer,
@@ -1066,7 +1348,7 @@ async function logout(callApi = true) {
   els.chatTitle.textContent = "Selecione uma conversa";
   els.chatSubtitle.textContent = "Aguardando seleção";
   els.adminUsersTableBody.innerHTML = "";
-  await fetchLoginChallenge();
+  await fetchLoginChallenge(true);
 }
 
 async function initializeInbox() {
@@ -1075,6 +1357,13 @@ async function initializeInbox() {
     await loadAdminUsers();
   }
   await loadConversations(false);
+  
+  // Se o usuário fez logout, gera nova charada automaticamente
+  if (!state.token) {
+    await fetchLoginChallenge(true);
+    return;
+  }
+  
   state.conversationPollTimer = setInterval(async () => {
     try {
       await loadConversations(true);
@@ -1084,6 +1373,10 @@ async function initializeInbox() {
   }, 12000);
   state.messagePollTimer = setInterval(async () => {
     try {
+      // Pausar atualização se houver mídia reproduzindo
+      if (hasActiveMediaPlayback()) {
+        return;
+      }
       await loadMessages();
     } catch (error) {
       console.error(error);
@@ -1093,7 +1386,7 @@ async function initializeInbox() {
 
 function bindEvents() {
   els.refreshChallengeBtn.addEventListener("click", async () => {
-    await fetchLoginChallenge();
+    await fetchLoginChallenge(true);
   });
   els.loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1101,9 +1394,31 @@ function bindEvents() {
     try {
       await login(els.loginEmail.value.trim(), els.loginPassword.value);
     } catch (error) {
-      els.loginError.textContent = error.message || "Falha no login.";
-      await fetchLoginChallenge();
-      els.challengeAnswer.value = "";
+      console.error('Login Error:', error);
+      console.error('Error Details:', {
+        status: error.status,
+        message: error.message,
+        challengeId: state.loginChallengeId,
+        email: els.loginEmail.value.trim(),
+        challengeAnswer: els.challengeAnswer.value.trim()
+      });
+      
+      // Mostra erro persistente por mais tempo
+      showErrorToast(error.message || "Falha no login.");
+      
+      // Se for erro de charada inválida (400), gera nova charada automaticamente
+      // Mas não gera para erro 401 (senha/email incorretos)
+      if (error.status === 400 || error.message?.includes('charada') || error.message?.includes('requisição')) {
+        console.log('Gerando nova charada devido ao erro:', error.status, error.message);
+        showInfoToast('Gerando nova charada automaticamente...');
+        await fetchLoginChallenge(true);
+        els.challengeAnswer.value = "";
+        els.loginPassword.value = "";
+      } else {
+        console.log('Erro de autenticação (senha/email incorretos), não gerando nova charada. Erro:', error.status, error.message);
+        // Limpa apenas a resposta da charada, mantém a senha
+        els.challengeAnswer.value = "";
+      }
     }
   });
   els.passwordForm.addEventListener("submit", async (event) => {
@@ -1135,50 +1450,12 @@ function bindEvents() {
       showToast(error.message || "Erro ao atualizar conversas.");
     }
   });
-  els.selectAllMessagesCheckbox.addEventListener("change", () => {
-    const shouldSelect = els.selectAllMessagesCheckbox.checked;
-    const checkboxes = els.messages.querySelectorAll('[data-action="select-message"]');
-    for (const checkbox of checkboxes) {
-      checkbox.checked = shouldSelect;
-      const messageId = Number(checkbox.dataset.id);
-      if (!Number.isFinite(messageId) || messageId <= 0) {
-        continue;
-      }
-      if (shouldSelect) {
-        state.selectedMessageIds.add(messageId);
-      } else {
-        state.selectedMessageIds.delete(messageId);
-      }
-    }
-    updateSelectedMessagesLabel();
-  });
-  els.deleteSelectedMessagesBtn.addEventListener("click", async () => {
-    try {
-      await deleteSelectedMessagesFromConversation();
-    } catch (error) {
-      showToast(error.message || "Falha ao apagar mensagens selecionadas.");
-    }
-  });
-  els.deleteCurrentConversationMessagesBtn.addEventListener("click", async () => {
-    try {
-      await deleteAllMessagesFromCurrentConversation();
-    } catch (error) {
-      showToast(error.message || "Falha ao apagar mensagens da conversa.");
-    }
-  });
-  els.deleteAllMessagesBtn.addEventListener("click", async () => {
-    try {
-      await deleteAllMessagesForTesting();
-    } catch (error) {
-      showToast(error.message || "Falha ao apagar todas as mensagens.");
-    }
-  });
+  els.exportCurrentDayBtn.addEventListener("click", () => exportCurrentDay());
   els.uploadImageBtn.addEventListener("click", () => els.imageFileInput.click());
   els.imageFileInput.addEventListener("change", async () => {
     await uploadImageFromLocal(els.imageFileInput.files?.[0]);
   });
   els.recordAudioBtn.addEventListener("click", () => openRecordModal("audio"));
-  els.recordVideoBtn.addEventListener("click", () => openRecordModal("video"));
   els.startRecordBtn.addEventListener("click", async () => {
     await startRecording();
   });
@@ -1189,6 +1466,20 @@ function bindEvents() {
       await loadAdminUsers();
     } catch (error) {
       showToast(error.message || "Falha ao carregar usuários.");
+    }
+  });
+  
+  // Infinite scroll event listener
+  els.messages.addEventListener("scroll", async () => {
+    if (!state.selectedConversationId) return;
+    
+    const conversationId = state.selectedConversationId;
+    const hasMore = state.hasMoreMessages[conversationId];
+    const isLoading = state.isLoadingMessages;
+    
+    // Se estiver perto do final e houver mais mensagens para carregar
+    if (!isLoading && hasMore && els.messages.scrollTop + els.messages.clientHeight >= els.messages.scrollHeight - 100) {
+      await loadMessages({ loadMore: true });
     }
   });
   els.activeUsersOnly.addEventListener("change", async () => {
@@ -1203,6 +1494,14 @@ function bindEvents() {
       await createUserFromAdmin();
     } catch (error) {
       showToast(error.message || "Falha ao criar usuário.");
+    }
+  });
+  els.cleanupSystemBtn.addEventListener("click", async () => {
+    try {
+      await cleanupSystem();
+    } catch (error) {
+      console.error('Erro na limpeza do sistema:', error);
+      showErrorToast("Erro na limpeza do sistema: " + (error.message || "Erro desconhecido"));
     }
   });
   els.adminUsersTableBody.addEventListener("click", async (event) => {
@@ -1242,7 +1541,10 @@ async function bootstrap() {
   setComposerVisibility();
   resetComposer();
   updateUserHeader();
-  await fetchLoginChallenge();
+  
+  // Sempre gera nova charada ao iniciar a aplicação
+  await fetchLoginChallenge(true);
+  
   if (!state.token) {
     els.loginOverlay.classList.remove("hidden");
     return;

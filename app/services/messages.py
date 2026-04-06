@@ -20,6 +20,7 @@ from app.models.runtime_settings import RuntimeSettings
 from app.models.user import User
 from app.schemas.message import OutboundMessageCreate
 from app.services.runtime_settings import get_or_create_runtime_settings
+from app.services.webhook_utils import get_outbound_webhook_url
 
 
 def _normalize_phone(raw: Any) -> str | None:
@@ -178,6 +179,26 @@ def _persist_inbound_media_from_base64(
     filename = f"{secrets.token_hex(16)}{extension}"
     destination = storage_path / filename
     Path(destination).write_bytes(media_bytes)
+    
+    # TESTE: Sem conversão de vídeos - usa arquivo bruto direto
+    if message_type == MessageType.VIDEO:
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            logger.info(f"TESTE SEM CONVERSÃO: Processando vídeo bruto: {filename}")
+            logger.info(f"MIME type: {mime_type}")
+            logger.info(f"File size: {len(media_bytes)} bytes")
+            
+            # Sem conversão - retorna URL direta do arquivo bruto
+            return f"/uploads/{filename}"
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error processing video: {e}")
+            # Use original file if there's any error
+    
     return f"/uploads/{filename}"
 
 
@@ -391,11 +412,33 @@ async def create_outbound_message(
     db.refresh(message)
 
     runtime_settings = get_or_create_runtime_settings(db)
-    if not runtime_settings.outbound_webhook_url:
+    outbound_webhook_url = get_outbound_webhook_url(runtime_settings)
+    
+    if not outbound_webhook_url:
         message.delivery_status = DeliveryStatus.SENT
         db.commit()
         db.refresh(message)
         return message
+
+    # TESTE: Sem conversão de vídeos - usa URL direta
+    final_media_url = data.media_url
+    final_mime_type = data.media_mime_type
+    
+    if data.message_type.value == "video" and data.media_url:
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # TESTE: Sem conversão - usa URL direta do vídeo bruto
+            logger.info(f"TESTE SEM CONVERSÃO: Usando URL direta do vídeo: {data.media_url}")
+            logger.info(f"MIME type: {data.media_mime_type}")
+            final_media_url = data.media_url
+            final_mime_type = data.media_mime_type  # Mantém MIME original
+                    
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error processing video URL: {e}")
 
     outbound_payload = {
         "conversation_id": conversation.id,
@@ -403,8 +446,8 @@ async def create_outbound_message(
         "to": conversation.contact_phone,
         "message_type": data.message_type.value,
         "text": data.text_content,
-        "media_url": data.media_url,
-        "media_mime_type": data.media_mime_type,
+        "media_url": final_media_url,
+        "media_mime_type": final_mime_type,
         "media_caption": data.media_caption,
         "attendant": {
             "id": attendant.id,
@@ -417,7 +460,7 @@ async def create_outbound_message(
         outbound_headers, outbound_auth = _build_outbound_request_security(runtime_settings)
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.post(
-                str(runtime_settings.outbound_webhook_url),
+                outbound_webhook_url,
                 json=outbound_payload,
                 headers=outbound_headers or None,
                 auth=outbound_auth,

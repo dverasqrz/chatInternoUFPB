@@ -72,15 +72,28 @@ async def upload_media(
     storage_path = settings.media_storage_path
     storage_path.mkdir(parents=True, exist_ok=True)
 
+    # MODO TESTE: Sem conversão de vídeos - envia bruto para Evolution API
     generated_name = f"{secrets.token_hex(16)}{extension}"
     destination = storage_path / generated_name
 
     content = await file.read()
     destination.write_bytes(content)
 
+    # TESTE: Sem conversão nenhuma - usar arquivo bruto
+    final_filename = generated_name
+    final_mime_type = mime
+    final_size = len(content)
+    
+    if mime.startswith("video/"):
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"TESTE SEM CONVERSÃO: Usando vídeo bruto: {generated_name}")
+        logger.info(f"MIME type: {mime}")
+        logger.info(f"Size: {len(content)} bytes")
+
     return UploadMediaResponse(
-        filename=generated_name,
-        media_url=f"/uploads/{generated_name}",
-        mime_type=file.content_type,
-        size_bytes=len(content),
+        filename=final_filename,
+        media_url=f"/uploads/{final_filename}",
+        mime_type=final_mime_type,
+        size_bytes=final_size,
     )

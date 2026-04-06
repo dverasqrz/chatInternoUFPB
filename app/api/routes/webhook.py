@@ -7,6 +7,7 @@ from app.db.session import get_db
 from app.schemas.message import WebhookIngestResponse
 from app.services.messages import ingest_inbound_message
 from app.services.runtime_settings import get_or_create_runtime_settings
+from app.services.webhook_utils import get_webhook_token
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 public_router = APIRouter(tags=["webhooks"])
@@ -20,7 +21,7 @@ def _validate_inbound_token(
     token_query: str | None,
 ) -> None:
     runtime_settings = get_or_create_runtime_settings(db)
-    inbound_token = runtime_settings.inbound_webhook_token
+    inbound_token = get_webhook_token(runtime_settings)
     if not inbound_token:
         return
 

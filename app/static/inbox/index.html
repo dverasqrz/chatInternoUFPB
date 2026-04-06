@@ -65,6 +65,11 @@
             <input id="newUserPassword" type="password" minlength="8">
             <button id="createUserBtn" class="btn btn-small">Adicionar usuário</button>
           </div>
+          
+          <div class="admin-cleanup-form">
+            <h4>Limpeza do Sistema</h4>
+            <button id="cleanupSystemBtn" class="btn btn-danger btn-small">🗑️ Apagar Tudo</button>
+          </div>
         </div>
       </section>
 
@@ -81,19 +86,11 @@
           <h2 id="chatTitle">Selecione uma conversa</h2>
           <p id="chatSubtitle">Aguardando seleção</p>
         </div>
-        <span class="badge" id="messageCountBadge">0 mensagens</span>
+        <div class="header-actions">
+          <button id="exportCurrentDayBtn" class="btn btn-outline btn-small hidden" type="button">Exportar dia atual</button>
+          <span class="badge" id="messageCountBadge">0 mensagens</span>
+        </div>
       </header>
-
-      <section id="adminMessageTools" class="admin-message-tools hidden">
-        <label class="checkbox-inline">
-          <input id="selectAllMessagesCheckbox" type="checkbox">
-          Selecionar todas as mensagens visíveis
-        </label>
-        <span id="selectedMessagesCount" class="muted">0 selecionadas</span>
-        <button id="deleteCurrentConversationMessagesBtn" class="btn btn-outline btn-small" type="button">Apagar todas desta conversa</button>
-        <button id="deleteSelectedMessagesBtn" class="btn btn-outline btn-small" type="button" disabled>Apagar selecionadas</button>
-        <button id="deleteAllMessagesBtn" class="btn btn-danger btn-small" type="button">Apagar TODAS (teste)</button>
-      </section>
 
       <section id="messages" class="messages"></section>
 
@@ -104,8 +101,7 @@
             <option value="text">Texto</option>
             <option value="image">Imagem</option>
             <option value="audio">Áudio</option>
-            <option value="video">Vídeo</option>
-          </select>
+                      </select>
         </div>
 
         <div class="composer-row" id="textRow">
@@ -125,15 +121,14 @@
 
         <div class="composer-row hidden" id="mediaMimeTypeRow">
           <label for="mediaMimeType">MIME type (opcional)</label>
-          <input id="mediaMimeType" placeholder="image/jpeg, audio/ogg, video/mp4...">
+          <input id="mediaMimeType" placeholder="image/jpeg, audio/ogg, audio/wav...">
         </div>
 
         <div class="composer-row media-actions hidden" id="mediaActionsRow">
           <input type="file" id="imageFileInput" accept="image/*" class="hidden">
           <button id="uploadImageBtn" class="btn btn-outline btn-small hidden" type="button">Enviar imagem local</button>
           <button id="recordAudioBtn" class="btn btn-outline btn-small hidden" type="button">Gravar áudio</button>
-          <button id="recordVideoBtn" class="btn btn-outline btn-small hidden" type="button">Gravar vídeo</button>
-        </div>
+                  </div>
 
         <div class="composer-actions">
           <button id="sendMessageBtn" class="btn">Enviar</button>
@@ -179,13 +174,27 @@
 
   <div id="recordOverlay" class="overlay hidden">
     <div class="modal">
-      <h2 id="recordTitle">Gravação</h2>
-      <p id="recordHelp">Use os botões para iniciar e finalizar.</p>
-      <video id="recordPreview" class="record-preview hidden" autoplay muted playsinline></video>
+      <h2 id="recordTitle">Gravar Áudio</h2>
+      <p id="recordHelp">Clique em "Iniciar Gravação" e permita acesso ao microfone.</p>
+      
+      <!-- Visualizador de áudio -->
+      <div id="audioVisualizer" class="audio-visualizer hidden">
+        <canvas id="audioCanvas" width="400" height="100"></canvas>
+        <div class="recording-indicator">
+          <div class="recording-dot"></div>
+          <span>Gravando...</span>
+        </div>
+      </div>
+      
+      <!-- Preview do áudio gravado -->
+      <div id="audioPreview" class="audio-preview hidden">
+        <audio id="audioPlayer" controls></audio>
+      </div>
+      
       <div class="modal-actions">
         <button id="cancelRecordBtn" class="btn btn-outline" type="button">Cancelar</button>
-        <button id="startRecordBtn" class="btn" type="button">Iniciar</button>
-        <button id="stopRecordBtn" class="btn hidden" type="button">Parar e anexar</button>
+        <button id="startRecordBtn" class="btn" type="button">Iniciar Gravação</button>
+        <button id="stopRecordBtn" class="btn hidden" type="button">Parar e Anexar</button>
       </div>
       <small id="recordError" class="error"></small>
     </div>

@@ -9,6 +9,9 @@ from app.models.runtime_settings import RuntimeSettings
 from app.models.user import User
 from app.schemas.admin import WebhookSettingsRead, WebhookSettingsUpdate
 from app.services.runtime_settings import get_or_create_runtime_settings
+import os
+import shutil
+from pathlib import Path
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -147,5 +150,135 @@ def update_webhook_settings(
 
     db.commit()
     db.refresh(runtime)
-
     return _read_payload(runtime)
+
+
+@router.delete("/cleanup/messages", status_code=status.HTTP_200_OK)
+async def cleanup_messages(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    """
+    Delete all messages from the system.
+    
+    This endpoint permanently deletes all messages from all conversations.
+    Only administrators can access this endpoint.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info("Iniciando limpeza de mensagens...")
+        
+        # Importar modelos para usar ORM
+        from app.models.message import Message
+        
+        # Deletar todas as mensagens usando ORM
+        messages_count = db.query(Message).count()
+        logger.info(f"Total de mensagens encontradas: {messages_count}")
+        
+        if messages_count > 0:
+            db.query(Message).delete(synchronize_session=False)
+            db.commit()
+            logger.info(f"{messages_count} mensagens deletadas com sucesso")
+        else:
+            logger.info("Nenhuma mensagem encontrada para deletar")
+        
+        return {
+            "message": "Todas as mensagens foram apagadas com sucesso.",
+            "deleted_count": messages_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao apagar mensagens: {str(e)}")
+        logger.error(f"Tipo do erro: {type(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao apagar mensagens: {str(e)}"
+        )
+
+
+@router.delete("/cleanup/uploads", status_code=status.HTTP_200_OK)
+async def cleanup_uploads(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    """
+    Delete all uploaded files from the system.
+    
+    This endpoint permanently deletes all files from the uploads directory.
+    Only administrators can access this endpoint.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info("Iniciando limpeza de arquivos...")
+        
+        # Get uploads directory path
+        uploads_dir = Path("/app/uploads")
+        logger.info(f"Diretório uploads: {uploads_dir.absolute()}")
+        
+        deleted_files = []
+        deleted_size = 0
+        
+        # Delete all files and directories in uploads folder
+        if uploads_dir.exists():
+            try:
+                # List all items first
+                items = list(uploads_dir.iterdir())
+                logger.info(f"Items encontrados: {len(items)}")
+                
+                for item in items:
+                    item_path = uploads_dir / item
+                    try:
+                        logger.info(f"Processando item: {item_path} (tipo: {item_path.stat().st_mode if item_path.exists() else 'não existe'})")
+                        
+                        if item_path.is_file():
+                            file_size = item_path.stat().st_size
+                            logger.info(f"Tentando deletar arquivo: {item.name} ({file_size} bytes)")
+                            item_path.unlink()
+                            deleted_files.append(str(item.name))
+                            deleted_size += file_size
+                            logger.info(f" Arquivo deletado: {item.name}")
+                        elif item_path.is_dir():
+                            logger.info(f"Tentando deletar diretório: {item.name}")
+                            shutil.rmtree(item_path)
+                            deleted_files.append(f"{item.name}/")
+                            logger.info(f" Diretório deletado: {item.name}")
+                        else:
+                            logger.warning(f"Item não é arquivo nem diretório: {item_path}")
+                    except Exception as e:
+                        logger.error(f" Erro ao deletar {item.name}: {type(e).__name__}: {e}")
+                        import traceback
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        
+            except Exception as e:
+                logger.error(f"Erro ao listar diretório: {e}")
+                raise e
+        else:
+            logger.info("Diretório uploads não existe ou já vazio")
+        
+        result = {
+            "message": "Todos os arquivos de upload foram apagados com sucesso.",
+            "deleted_files": deleted_files,
+            "deleted_count": len(deleted_files),
+            "freed_space_mb": round(deleted_size / (1024 * 1024), 2) if deleted_size > 0 else 0
+        }
+        
+        logger.info(f"Limpeza concluída: {len(deleted_files)} itens, {result['freed_space_mb']}MB liberados")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Erro ao apagar arquivos: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao apagar arquivos: {str(e)}"
+        )
