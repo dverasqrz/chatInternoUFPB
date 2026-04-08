@@ -66,13 +66,13 @@ const els = {
   messageCountBadge: document.getElementById("messageCountBadge"),
   messages: document.getElementById("messages"),
   messageType: document.getElementById("messageType"),
+  typeIconsContainer: document.getElementById("typeIconsContainer"),
+  typeIcons: document.querySelectorAll(".btn-icon[data-type]"),
   textRow: document.getElementById("textRow"),
   textContent: document.getElementById("textContent"),
-  mediaUrlRow: document.getElementById("mediaUrlRow"),
   mediaUrl: document.getElementById("mediaUrl"),
   mediaCaptionRow: document.getElementById("mediaCaptionRow"),
   mediaCaption: document.getElementById("mediaCaption"),
-  mediaMimeTypeRow: document.getElementById("mediaMimeTypeRow"),
   mediaMimeType: document.getElementById("mediaMimeType"),
   mediaActionsRow: document.getElementById("mediaActionsRow"),
   imageFileInput: document.getElementById("imageFileInput"),
@@ -301,9 +301,7 @@ function setComposerVisibility() {
   const type = els.messageType.value;
   const isText = type === "text";
   els.textRow.classList.toggle("hidden", !isText);
-  els.mediaUrlRow.classList.toggle("hidden", isText);
   els.mediaCaptionRow.classList.toggle("hidden", isText);
-  els.mediaMimeTypeRow.classList.toggle("hidden", isText);
   els.mediaActionsRow.classList.toggle("hidden", isText);
   els.uploadImageBtn.classList.toggle("hidden", type !== "image" && type !== "document");
   els.recordAudioBtn.classList.toggle("hidden", type !== "audio");
@@ -317,8 +315,21 @@ function setComposerVisibility() {
   }
 }
 
+function updateTypeIcons() {
+  if (!els.typeIcons) return;
+  const currentType = els.messageType.value;
+  els.typeIcons.forEach(icon => {
+    if (icon.dataset.type === currentType) {
+      icon.classList.add("active");
+    } else {
+      icon.classList.remove("active");
+    }
+  });
+}
+
 function resetComposer() {
   els.messageType.value = "text";
+  updateTypeIcons();
   els.textContent.value = "";
   els.mediaUrl.value = "";
   els.mediaCaption.value = "";
@@ -626,6 +637,7 @@ async function startRecording() {
           const file = new File([blob], `audio-${Date.now()}.webm`, { type: mimeType });
           const uploaded = await uploadMediaFile(file);
           els.messageType.value = "audio";
+          updateTypeIcons();
           setComposerVisibility();
           els.mediaUrl.value = uploaded.media_url;
           els.mediaMimeType.value = uploaded.mime_type || mimeType;
@@ -675,10 +687,16 @@ async function uploadImageFromLocal(file) {
   if (!file) {
     return;
   }
+  
+  const originalBtnText = els.uploadImageBtn.textContent;
+  els.uploadImageBtn.disabled = true;
+  els.uploadImageBtn.innerHTML = '<span class="loading-spinner-inline"></span> Anexando...';
+
   try {
     const uploaded = await uploadMediaFile(file);
     const type = file.type.startsWith("image/") ? "image" : "document";
     els.messageType.value = type;
+    updateTypeIcons();
     setComposerVisibility();
     els.mediaUrl.value = uploaded.media_url;
     els.mediaMimeType.value = uploaded.mime_type || file.type;
@@ -687,6 +705,8 @@ async function uploadImageFromLocal(file) {
     showToast(error.message || "Falha ao enviar arquivo.");
   } finally {
     els.imageFileInput.value = "";
+    els.uploadImageBtn.disabled = false;
+    els.uploadImageBtn.textContent = originalBtnText;
   }
 }
 
@@ -858,8 +878,11 @@ function buildMessageBody(message) {
   if (message.message_type === "image" && message.media_url) {
     return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada">`;
   }
-  if (message.message_type === "document" && message.media_url) {
-    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento recebido</strong><br><a href="${safeUrl}" target="_blank" style="color:#0a3b2b;text-decoration:none;font-weight:700;">Baixar / Abrir arquivo</a></div></div>`;
+  if (message.message_type === "document") {
+    const urlHTML = message.media_url 
+      ? `<a href="${safeUrl}" target="_blank" style="color:#0a3b2b;text-decoration:none;font-weight:700;">Baixar / Abrir arquivo</a>`
+      : `<span style="color:#666;font-size:12px;font-style:italic;">Arquivo indisponível para download</span>`;
+    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento</strong><br>${urlHTML}</div></div>`;
   }
   if (message.message_type === "audio" && message.media_url) {
     const encryptedHint = String(message.media_url).includes(".enc")
@@ -1469,7 +1492,20 @@ function bindEvents() {
   els.logoutBtn.addEventListener("click", async () => {
     await logout(true);
   });
-  els.messageType.addEventListener("change", setComposerVisibility);
+  if (els.typeIcons) {
+    els.typeIcons.forEach((icon) => {
+      icon.addEventListener("click", () => {
+        const type = icon.dataset.type;
+        if (icon.classList.contains("active") && type !== "text") {
+          els.messageType.value = "text";
+        } else {
+          els.messageType.value = type;
+        }
+        updateTypeIcons();
+        setComposerVisibility();
+      });
+    });
+  }
   els.sendMessageBtn.addEventListener("click", async () => {
     try {
       await sendMessage();

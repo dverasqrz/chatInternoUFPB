@@ -294,6 +294,18 @@ body {
   animation: spin 1s linear infinite;
 }
 
+.loading-spinner-inline {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(0, 0, 0, 0.1);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
@@ -430,6 +442,44 @@ select:focus {
   border-color: var(--accent);
 }
 
+.composer-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.composer-type-icons {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-icon {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  padding: 0;
+}
+
+.btn-icon:hover {
+  background: var(--panel-soft);
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.btn-icon.active {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 .composer-actions {
   display: flex;
   justify-content: flex-end;
@@ -537,6 +587,11 @@ select:focus {
 .btn-outline {
   background: transparent;
   color: var(--accent-strong);
+}
+
+.btn-outline:hover {
+  background: var(--accent-strong);
+  color: white;
 }
 
 .btn-danger {

@@ -33,13 +33,23 @@ class MediaService:
         self.allowed_mime_types = {
             'image': ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'],
             'audio': ['audio/ogg', 'audio/mpeg', 'audio/wav', 'audio/mp4', 'audio/webm'],
-            'video': ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo']
+            'video': ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-msvideo'],
+            'document': [
+                'application/pdf', 'application/msword', 
+                'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                'application/vnd.ms-excel',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                'application/vnd.ms-powerpoint',
+                'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                'text/plain', 'text/csv', 'application/zip', 'application/x-rar-compressed'
+            ]
         }
         
         self.allowed_extensions = {
             'image': ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'],
             'audio': ['.ogg', '.mp3', '.wav', '.m4a', '.webm'],
-            'video': ['.mp4', '.webm', '.mov', '.avi']
+            'video': ['.mp4', '.webm', '.mov', '.avi'],
+            'document': ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.zip', '.rar']
         }
     
     def validate_media_file(self, file: UploadFile) -> Tuple[str, str]:
@@ -85,6 +95,8 @@ class MediaService:
                 return 'audio'
             elif mime_type.startswith('video/'):
                 return 'video'
+            elif mime_type.startswith('application/') or mime_type.startswith('text/'):
+                return 'document'
         
         # Fall back to extension
         if extension in self.allowed_extensions['image']:
@@ -93,6 +105,8 @@ class MediaService:
             return 'audio'
         elif extension in self.allowed_extensions['video']:
             return 'video'
+        elif extension in self.allowed_extensions['document']:
+            return 'document'
         
         raise ValidationError("Unsupported media type")
     
