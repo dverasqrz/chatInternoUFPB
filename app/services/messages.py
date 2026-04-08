@@ -43,12 +43,16 @@ def _first_text_value(*values: Any) -> str | None:
 
 def _extract_type(raw_type: Any, has_media: bool, message: dict[str, Any]) -> MessageType:
     raw = str(raw_type or "").lower()
+    if "document" in raw or "file" in raw:
+        return MessageType.DOCUMENT
     if "image" in raw:
         return MessageType.IMAGE
     if "audio" in raw or "ptt" in raw:
         return MessageType.AUDIO
     if "video" in raw:
         return MessageType.VIDEO
+    if "documentMessage" in message:
+        return MessageType.DOCUMENT
     if "imageMessage" in message:
         return MessageType.IMAGE
     if "audioMessage" in message or "pttMessage" in message:
@@ -94,6 +98,17 @@ def _extension_for_media(message_type: MessageType, mime_type: str | None) -> st
             "image/png": ".png",
             "image/webp": ".webp",
             "image/gif": ".gif",
+            "application/pdf": ".pdf",
+            "application/msword": ".doc",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+            "application/vnd.ms-excel": ".xls",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+            "application/vnd.ms-powerpoint": ".ppt",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+            "text/plain": ".txt",
+            "text/csv": ".csv",
+            "application/zip": ".zip",
+            "application/x-rar-compressed": ".rar",
         }
         if mime_type in known:
             return known[mime_type]
@@ -103,6 +118,8 @@ def _extension_for_media(message_type: MessageType, mime_type: str | None) -> st
             return ".mp4"
         if mime_type.startswith("image/"):
             return ".jpg"
+        if mime_type.startswith("text/"):
+            return ".txt"
 
     if message_type == MessageType.AUDIO:
         return ".ogg"
@@ -110,6 +127,8 @@ def _extension_for_media(message_type: MessageType, mime_type: str | None) -> st
         return ".mp4"
     if message_type == MessageType.IMAGE:
         return ".jpg"
+    if message_type == MessageType.DOCUMENT:
+        return ".pdf"
     return ".bin"
 
 
@@ -158,14 +177,47 @@ def _persist_inbound_media_from_base64(
     message_type: MessageType,
     mime_type: str | None,
 ) -> str | None:
-    if message_type not in {MessageType.IMAGE, MessageType.AUDIO, MessageType.VIDEO}:
+    if message_type not in {MessageType.IMAGE, MessageType.AUDIO, MessageType.VIDEO, MessageType.DOCUMENT}:
         return None
 
     base64_payload = _find_base64_in_payload(payload)
-    if not base64_payload:
-        return None
+    media_bytes = None
 
-    media_bytes = _decode_base64_media(base64_payload)
+    if base64_payload:
+        media_bytes = _decode_base64_media(base64_payload)
+    else:
+        server_url = payload.get("server_url")
+        apikey = payload.get("apikey")
+        instance = payload.get("instance")
+        root = _get_nested_dict(payload.get("data")) or _get_nested_dict(payload.get("body")) or payload
+        key = _get_nested_dict(root.get("key"))
+        message_id = _first_text_value(root.get("id"), root.get("messageId"), key.get("id"))
+
+        if server_url and apikey and instance and message_id:
+            try:
+                import httpx
+                import logging
+                logger = logging.getLogger(__name__)
+                
+                download_url = f"{str(server_url).rstrip('/')}/chat/getBase64FromMediaMessage/{instance}"
+                with httpx.Client(timeout=30.0) as client:
+                    resp = client.post(
+                        download_url,
+                        json={"message": {"key": {"id": message_id}}},
+                        headers={"apikey": str(apikey)}
+                    )
+                    if resp.status_code in (200, 201):
+                        data = resp.json()
+                        fetched_base64 = data.get("base64")
+                        if fetched_base64:
+                            media_bytes = _decode_base64_media(fetched_base64)
+                    else:
+                        logger.error(f"Evolution API HTTP {resp.status_code}: {resp.text}")
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to fetch base64 from EvolutionAPI: {e}")
+
     if not media_bytes:
         return None
     if len(media_bytes) > 25 * 1024 * 1024:

@@ -14,7 +14,7 @@ from app.schemas.upload import UploadMediaResponse
 
 router = APIRouter(prefix="/uploads", tags=["uploads"])
 
-ALLOWED_PREFIXES = ("image/", "audio/", "video/")
+ALLOWED_PREFIXES = ("image/", "audio/", "video/", "application/", "text/")
 ALLOWED_EXTENSIONS = {
     ".jpg",
     ".jpeg",
@@ -29,6 +29,15 @@ ALLOWED_EXTENSIONS = {
     ".webm",
     ".mp4",
     ".mov",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".csv",
+    ".txt",
+    ".zip",
+    ".rar",
 }
 
 

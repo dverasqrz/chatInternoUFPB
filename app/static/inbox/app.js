@@ -305,9 +305,17 @@ function setComposerVisibility() {
   els.mediaCaptionRow.classList.toggle("hidden", isText);
   els.mediaMimeTypeRow.classList.toggle("hidden", isText);
   els.mediaActionsRow.classList.toggle("hidden", isText);
-  els.uploadImageBtn.classList.toggle("hidden", type !== "image");
+  els.uploadImageBtn.classList.toggle("hidden", type !== "image" && type !== "document");
   els.recordAudioBtn.classList.toggle("hidden", type !== "audio");
+
+  if (type === "document") {
+    els.imageFileInput.accept = "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.txt,.csv,.zip,.rar";
+    els.uploadImageBtn.textContent = "Anexar arquivo local";
+  } else {
+    els.imageFileInput.accept = "image/*";
+    els.uploadImageBtn.textContent = "Enviar imagem local";
   }
+}
 
 function resetComposer() {
   els.messageType.value = "text";
@@ -669,13 +677,14 @@ async function uploadImageFromLocal(file) {
   }
   try {
     const uploaded = await uploadMediaFile(file);
-    els.messageType.value = "image";
+    const type = file.type.startsWith("image/") ? "image" : "document";
+    els.messageType.value = type;
     setComposerVisibility();
     els.mediaUrl.value = uploaded.media_url;
-    els.mediaMimeType.value = uploaded.mime_type || "image/*";
-    showSuccessToast("Imagem anexada.");
+    els.mediaMimeType.value = uploaded.mime_type || file.type;
+    showSuccessToast("Arquivo anexado.");
   } catch (error) {
-    showToast(error.message || "Falha ao enviar imagem.");
+    showToast(error.message || "Falha ao enviar arquivo.");
   } finally {
     els.imageFileInput.value = "";
   }
@@ -849,6 +858,9 @@ function buildMessageBody(message) {
   if (message.message_type === "image" && message.media_url) {
     return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada">`;
   }
+  if (message.message_type === "document" && message.media_url) {
+    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento recebido</strong><br><a href="${safeUrl}" target="_blank" style="color:#0a3b2b;text-decoration:none;font-weight:700;">Baixar / Abrir arquivo</a></div></div>`;
+  }
   if (message.message_type === "audio" && message.media_url) {
     const encryptedHint = String(message.media_url).includes(".enc")
       ? `<p class="muted">Áudio criptografado do WhatsApp. Para reprodução no navegador, envie base64 no webhook de entrada.</p>`
@@ -965,10 +977,11 @@ async function downloadExportPdf() {
 
 function renderMessages(messages, options = {}) {
   const append = Boolean(options.append);
+  const prepend = Boolean(options.prepend);
   const conversationId = state.selectedConversationId;
   
   // Atualiza contador de mensagens (sem piscamento)
-  const allMessages = append ? (state.messagesByConversation[conversationId] || []) : messages;
+  const allMessages = (append || prepend) ? (state.messagesByConversation[conversationId] || []) : messages;
   const currentCount = els.messageCountBadge.textContent;
   const newCount = `${allMessages.length} mensagens`;
   
@@ -1019,6 +1032,24 @@ function renderMessages(messages, options = {}) {
         behavior: 'smooth'
       });
     }, 100);
+  } else if (prepend) {
+    const oldScrollHeight = els.messages.scrollHeight;
+    const newMessagesHtml = messages
+      .map((message) => {
+        const klass = message.direction === "outbound" ? "outbound" : "inbound";
+        const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
+        return `<article class="message-item ${klass}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
+            ${buildMessageBody(message)}
+          </article>`;
+      })
+      .join("");
+      
+    // Adiciona ao topo existente
+    els.messages.insertAdjacentHTML('afterbegin', newMessagesHtml);
+    
+    // Ajusta o scroll para não perder a posição original
+    els.messages.scrollTop += (els.messages.scrollHeight - oldScrollHeight);
   } else {
     // Renderização completa - usa fragment para evitar piscamento
     const fragment = document.createDocumentFragment();
@@ -1043,6 +1074,9 @@ function renderMessages(messages, options = {}) {
     // Substitui conteúdo de uma vez (sem piscamento)
     els.messages.innerHTML = '';
     els.messages.appendChild(fragment);
+    
+    // Sempre scroll para o fim no load completo
+    els.messages.scrollTop = els.messages.scrollHeight;
   }
   
   // Configurar eventos de mídia
@@ -1161,7 +1195,7 @@ async function loadMessages(options = {}) {
     // Se for loadMore, adiciona às mensagens existentes
     if (loadMore && state.messagesByConversation[conversationId]) {
       const existingMessages = state.messagesByConversation[conversationId];
-      const allMessages = [...existingMessages, ...messages];
+      const allMessages = [...messages, ...existingMessages];
       state.messagesByConversation[conversationId] = allMessages;
       
       // Atualiza offset para próxima carga
@@ -1170,7 +1204,7 @@ async function loadMessages(options = {}) {
       // Verifica se há mais mensagens
       state.hasMoreMessages[conversationId] = messages.length === limit;
       
-      renderMessages(allMessages, { append: true });
+      renderMessages(messages, { prepend: true });
     } else {
       // Primeira carga ou refresh completo - só renderiza se houver mudanças
       if (!forceRender && currentSignature === newSignature) {
@@ -1477,8 +1511,8 @@ function bindEvents() {
     const hasMore = state.hasMoreMessages[conversationId];
     const isLoading = state.isLoadingMessages;
     
-    // Se estiver perto do final e houver mais mensagens para carregar
-    if (!isLoading && hasMore && els.messages.scrollTop + els.messages.clientHeight >= els.messages.scrollHeight - 100) {
+    // Se estiver perto do topo e houver mais mensagens para carregar
+    if (!isLoading && hasMore && els.messages.scrollTop <= 150) {
       await loadMessages({ loadMore: true });
     }
   });

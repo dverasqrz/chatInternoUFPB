@@ -20,6 +20,7 @@ class MessageType(str, Enum):
     IMAGE = "image"
     AUDIO = "audio"
     VIDEO = "video"
+    DOCUMENT = "document"
 
 
 class DeliveryStatus(str, Enum):
