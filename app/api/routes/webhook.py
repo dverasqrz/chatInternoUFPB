@@ -51,13 +51,31 @@ def _handle_webhook_payload(
         authorization=authorization,
         token_query=token_query,
     )
-    message = ingest_inbound_message(db=db, payload=payload)
-    return WebhookIngestResponse(
-        status="ok",
-        conversation_id=message.conversation_id,
-        message_id=message.id,
-        message_type=message.message_type,
-    )
+    result = ingest_inbound_message(db=db, payload=payload)
+    if result is None:
+        return WebhookIngestResponse(
+            status="ignored",
+            conversation_id=None,
+            message_id=None,
+            message_type=None,
+        )
+
+    if hasattr(result, "message_type"):
+        # It's a Message
+        return WebhookIngestResponse(
+            status="ok",
+            conversation_id=result.conversation_id,
+            message_id=result.id,
+            message_type=result.message_type,
+        )
+    else:
+        # It's a Conversation (contact update)
+        return WebhookIngestResponse(
+            status="ok",
+            conversation_id=result.id,
+            message_id=None,
+            message_type=None,
+        )
 
 
 @router.post("/evolution", response_model=WebhookIngestResponse)

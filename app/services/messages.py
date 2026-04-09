@@ -282,6 +282,24 @@ def _build_outbound_request_security(runtime_settings: RuntimeSettings) -> tuple
 
 
 def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    event = payload.get("event")
+    if event in ("contacts.upsert", "contacts.update"):
+        data = payload.get("data", [])
+        if isinstance(data, list) and len(data) > 0:
+            contact = data[0]
+        elif isinstance(data, dict):
+            contact = data
+        else:
+            contact = {}
+        
+        return {
+            "event": event,
+            "contact_phone": _normalize_phone(contact.get("id", "")),
+            "contact_name": contact.get("name") or contact.get("pushName") or contact.get("verifiedName"),
+            "profile_picture_url": contact.get("profilePicUrl") or contact.get("profilePictureUrl"),
+            "raw_payload": payload,
+        }
+
     body = _get_nested_dict(payload.get("body"))
     root = _get_nested_dict(payload.get("data")) or _get_nested_dict(body.get("data")) or body or payload
     sender = _get_nested_dict(root.get("sender"))
@@ -390,6 +408,7 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         media_url = persisted_media_url
 
     return {
+        "event": event,
         "contact_phone": contact_phone,
         "contact_name": contact_name,
         "message_type": message_type,
@@ -417,13 +436,71 @@ def _get_or_create_conversation(db: Session, contact_phone: str, contact_name: s
     return conversation
 
 
-def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Message:
+def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation | Message | None:
     normalized = normalize_webhook_payload(payload)
+    
+    if not normalized.get("contact_phone"):
+        raise HTTPException(status_code=400, detail="Webhook sem telefone do contato.")
+
+    contact_phone = normalized["contact_phone"]
+    
+    # Ignore webhooks where the contact phone is the UFPB system bot itself
+    if contact_phone == "+558332167336":
+        return None
+        
+    # Ignore webhooks where the contact phone matches the instance's own number
+    sender_phone = _normalize_phone(payload.get("sender"))
+    if sender_phone and contact_phone == sender_phone:
+        return None
+
     conversation = _get_or_create_conversation(
         db=db,
         contact_phone=normalized["contact_phone"],
         contact_name=normalized["contact_name"],
     )
+    
+    profile_pic = normalized.get("profile_picture_url")
+    if profile_pic:
+        conversation.profile_picture_url = profile_pic
+        db.commit()
+        db.refresh(conversation)
+    elif not conversation.profile_picture_url:
+        # Tenta buscar a foto na API da Evolution de forma ativa
+        server_url = payload.get("server_url")
+        apikey = payload.get("apikey")
+        instance = payload.get("instance")
+        if server_url and apikey and instance:
+            try:
+                import httpx
+                import logging
+                logger = logging.getLogger(__name__)
+                
+                download_url = f"{str(server_url).rstrip('/')}/chat/fetchProfilePictureUrl/{instance}"
+                clean_phone = contact_phone.replace("+", "")
+                
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.post(
+                        download_url,
+                        json={"number": clean_phone},
+                        headers={"apikey": str(apikey)}
+                    )
+                    if resp.status_code in (200, 201):
+                        data = resp.json()
+                        fetched_url = data.get("profilePictureUrl")
+                        if fetched_url:
+                            conversation.profile_picture_url = fetched_url
+                            db.commit()
+                            db.refresh(conversation)
+                    else:
+                        logger.error(f"Evolution API fetchProfile fail: {resp.status_code}")
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Erro ao tentar cachear foto de perfil: {e}")
+    
+    if normalized.get("event") in ("contacts.upsert", "contacts.update"):
+        return conversation
+
     conversation.last_message_at = datetime.now(timezone.utc)
 
     message = Message(

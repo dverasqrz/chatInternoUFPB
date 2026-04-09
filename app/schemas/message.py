@@ -43,9 +43,9 @@ class MessageRead(BaseModel):
 
 class WebhookIngestResponse(BaseModel):
     status: str
-    conversation_id: int
-    message_id: int
-    message_type: MessageType
+    conversation_id: int | None = None
+    message_id: int | None = None
+    message_type: MessageType | None = None
 
 
 class MessageBulkDeleteRequest(BaseModel):

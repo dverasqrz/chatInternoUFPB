@@ -60,6 +60,7 @@ const els = {
   createUserBtn: document.getElementById("createUserBtn"),
   refreshConversationsBtn: document.getElementById("refreshConversationsBtn"),
   conversationList: document.getElementById("conversationList"),
+  chatHeaderAvatar: document.getElementById("chatHeaderAvatar"),
   chatTitle: document.getElementById("chatTitle"),
   chatSubtitle: document.getElementById("chatSubtitle"),
   exportCurrentDayBtn: document.getElementById("exportCurrentDayBtn"),
@@ -101,6 +102,7 @@ const els = {
   downloadHtmlBtn: document.getElementById("downloadHtmlBtn"),
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
   cleanupSystemBtn: document.getElementById("cleanupSystemBtn"),
+  cleanupContactsBtn: document.getElementById("cleanupContactsBtn"),
   appResizer: document.getElementById("appResizer"),
   leftPane: document.querySelector(".left-pane"),
   addContactBtn: document.getElementById("addContactBtn"),
@@ -818,6 +820,32 @@ async function handleAdminUserAction(action, userId) {
   }
 }
 
+async function cleanupContacts() {
+  if (!window.confirm("⚠️ CONFIRMAÇÃO NECESSÁRIA\n\nEsta ação IRREVERSÍVEL irá apagar:\n\n• TODOS os perfis de contatos salvos\n• TODAS as conversas (e todas as mensagens vinculadas a elas)\n\nEsta ação NÃO PODE ser desfeita!\n\nDeseja continuar?")) {
+    return;
+  }
+  
+  try {
+    showInfoToast("Iniciando exclusão de contatos...");
+    await apiRequest("/admin/cleanup/contacts", { method: "DELETE" });
+    showSuccessToast("✅ Limpeza de contatos e conversas concluída!");
+    
+    // Reset state
+    if (state.selectedConversationId) {
+      state.selectedConversationId = null;
+      els.messages.innerHTML = "<p>Sistema limpo. Selecione uma conversa.</p>";
+      els.chatTitle.textContent = "Sistema Limpo";
+      els.chatSubtitle.textContent = "Todas as mensagens foram removidas";
+    }
+    
+    // Atualizar UI
+    await loadConversations(true);
+    await loadCatalog();
+  } catch (error) {
+    throw error;
+  }
+}
+
 async function cleanupSystem() {
   if (!window.confirm("⚠️ CONFIRMAÇÃO NECESSÁRIA\n\nEsta ação IRREVERSIVEL irá apagar:\n\n• TODAS as mensagens do sistema\n• TODOS os arquivos da pasta uploads\n\nEsta ação NÃO PODE ser desfeita!\n\nDeseja continuar?")) {
     return;
@@ -864,6 +892,36 @@ async function cleanupSystem() {
   }
 }
 
+function getInitials(name) {
+  if (!name || name === "Contato sem nome") return "?";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return parts[0][0].toUpperCase();
+}
+
+function stringToColor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const h = Math.abs(hash) % 360;
+  return `hsl(${h}, 65%, 45%)`;
+}
+
+function formatDeliveryStatus(status) {
+  if (!status || status === "null") return "";
+  const s = status.toLowerCase();
+  if (s === "sent") return "enviada";
+  if (s === "received") return "recebida";
+  if (s === "failed") return "falhou";
+  if (s === "delivered") return "entregue";
+  if (s === "read") return "lida";
+  if (s === "pending") return "pendente";
+  return status;
+}
+
 function renderConversations() {
   if (!state.conversations.length) {
     els.conversationList.innerHTML = `<li class="conversation-item">Nenhuma conversa ainda.</li>`;
@@ -873,11 +931,19 @@ function renderConversations() {
     .map((conversation) => {
       const activeClass = String(conversation.id) === String(state.selectedConversationId) ? "active" : "";
       const fallbackName = conversation.contact_name || conversation.contact_phone || "Contato sem nome";
+      const initials = getInitials(fallbackName);
+      const bgColor = stringToColor(conversation.contact_phone || fallbackName);
+      const avatarContent = conversation.profile_picture_url 
+        ? `<img src="${escapeHtml(conversation.profile_picture_url)}" alt="Avatar">`
+        : initials;
       return `
         <li class="conversation-item ${activeClass}" data-id="${conversation.id}">
-          <div class="conversation-name">${escapeHtml(fallbackName)}</div>
-          <div class="conversation-phone">${escapeHtml(conversation.contact_phone)}</div>
-          <div class="conversation-phone">Atualizado: ${formatDate(conversation.last_message_at)}</div>
+          <div class="conversation-avatar" style="${conversation.profile_picture_url ? 'background-color: transparent;' : `background-color: ${bgColor};`}">${avatarContent}</div>
+          <div class="conversation-info">
+            <div class="conversation-name">${escapeHtml(fallbackName)}</div>
+            <div class="conversation-phone">${escapeHtml(conversation.contact_phone)}</div>
+            <div class="conversation-phone">Atualizado: ${formatDate(conversation.last_message_at)}</div>
+          </div>
         </li>
       `;
     })
@@ -1049,7 +1115,7 @@ function renderMessages(messages, options = {}) {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
         return `<article class="message-item ${klass} message-new">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(formatDeliveryStatus(message.delivery_status))}</span></div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -1081,7 +1147,7 @@ function renderMessages(messages, options = {}) {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
         return `<article class="message-item ${klass}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(formatDeliveryStatus(message.delivery_status))}</span></div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -1102,7 +1168,7 @@ function renderMessages(messages, options = {}) {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
         return `<article class="message-item ${klass}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(message.delivery_status)}</span></div>
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(formatDeliveryStatus(message.delivery_status))}</span></div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -1211,10 +1277,20 @@ async function loadConversations(preserveSelection = true) {
     const selected = conversations.find((item) => String(item.id) === String(state.selectedConversationId));
     els.chatTitle.textContent = selected?.contact_name || selected?.contact_phone || "Contato sem nome";
     els.chatSubtitle.textContent = selected?.contact_phone || "-";
+    if (selected) {
+      const avatarContent = selected.profile_picture_url 
+        ? `<img src="${escapeHtml(selected.profile_picture_url)}" alt="Avatar">`
+        : escapeHtml(getInitials(els.chatTitle.textContent));
+      const bgColor = stringToColor(selected.contact_phone || els.chatTitle.textContent);
+      els.chatHeaderAvatar.innerHTML = avatarContent;
+      els.chatHeaderAvatar.style.cssText = selected.profile_picture_url ? "background-color: transparent;" : `background-color: ${bgColor};`;
+      els.chatHeaderAvatar.classList.remove("hidden");
+    }
     await loadMessages({ forceRender: selectionChanged });
   } else {
     els.chatTitle.textContent = "Selecione uma conversa";
     els.chatSubtitle.textContent = "Aguardando seleção";
+    els.chatHeaderAvatar.classList.add("hidden");
     renderMessages([]);
   }
 }
@@ -1306,6 +1382,15 @@ async function selectConversation(id) {
   const selected = state.conversations.find((item) => String(item.id) === String(id));
   els.chatTitle.textContent = selected?.contact_name || selected?.contact_phone || "Contato sem nome";
   els.chatSubtitle.textContent = selected?.contact_phone || "-";
+  if (selected) {
+    const avatarContent = selected.profile_picture_url 
+      ? `<img src="${escapeHtml(selected.profile_picture_url)}" alt="Avatar">`
+      : escapeHtml(getInitials(els.chatTitle.textContent));
+    const bgColor = stringToColor(selected.contact_phone || els.chatTitle.textContent);
+    els.chatHeaderAvatar.innerHTML = avatarContent;
+    els.chatHeaderAvatar.style.cssText = selected.profile_picture_url ? "background-color: transparent;" : `background-color: ${bgColor};`;
+    els.chatHeaderAvatar.classList.remove("hidden");
+  }
   
   // Limpa estado do scroll infinito ao trocar de conversa
   state.messagesByConversation[id] = [];
@@ -1444,6 +1529,7 @@ async function logout(callApi = true) {
   els.conversationList.innerHTML = "";
   els.chatTitle.textContent = "Selecione uma conversa";
   els.chatSubtitle.textContent = "Aguardando seleção";
+  els.chatHeaderAvatar.classList.add("hidden");
   els.adminUsersTableBody.innerHTML = "";
   await fetchLoginChallenge(true);
 }
@@ -1467,7 +1553,7 @@ async function initializeInbox() {
     } catch (error) {
       console.error(error);
     }
-  }, 12000);
+  }, 5000);
   state.messagePollTimer = setInterval(async () => {
     try {
       // Pausar atualização se houver mídia reproduzindo
@@ -1478,7 +1564,7 @@ async function initializeInbox() {
     } catch (error) {
       console.error(error);
     }
-  }, 4000);
+  }, 2000);
 }
 
 function setupResizer() {
@@ -1757,6 +1843,14 @@ function bindEvents() {
     } catch (error) {
       console.error('Erro na limpeza do sistema:', error);
       showErrorToast("Erro na limpeza do sistema: " + (error.message || "Erro desconhecido"));
+    }
+  });
+  els.cleanupContactsBtn.addEventListener("click", async () => {
+    try {
+      await cleanupContacts();
+    } catch (error) {
+      console.error('Erro na limpeza de contatos:', error);
+      showErrorToast("Erro na limpeza de contatos: " + (error.message || "Erro desconhecido"));
     }
   });
   els.adminUsersTableBody.addEventListener("click", async (event) => {

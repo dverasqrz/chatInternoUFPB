@@ -5,9 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UFPB Chat - Inbox</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/inbox/styles.css">
+  <link rel="stylesheet" href="/inbox/styles.css?v=8">
 </head>
 <body>
   <div class="app-shell">
@@ -66,9 +65,10 @@
             <button id="createUserBtn" class="btn btn-small">Adicionar usuário</button>
           </div>
           
-          <div class="admin-cleanup-form">
+          <div class="admin-cleanup-form" style="display: flex; flex-direction: column; gap: 8px;">
             <h4>Limpeza do Sistema</h4>
-            <button id="cleanupSystemBtn" class="btn btn-danger btn-small">🗑️ Apagar Tudo</button>
+            <button id="cleanupSystemBtn" class="btn btn-danger btn-small">🗑️ Apagar Mensagens e Uploads</button>
+            <button id="cleanupContactsBtn" class="btn btn-danger btn-small">🗑️ Apagar Todos os Contatos</button>
           </div>
         </div>
       </section>
@@ -88,9 +88,12 @@
 
     <main class="main-pane">
       <header class="chat-header">
-        <div>
-          <h2 id="chatTitle">Selecione uma conversa</h2>
-          <p id="chatSubtitle">Aguardando seleção</p>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div id="chatHeaderAvatar" class="conversation-avatar hidden"></div>
+          <div>
+            <h2 id="chatTitle">Selecione uma conversa</h2>
+            <p id="chatSubtitle">Aguardando seleção</p>
+          </div>
         </div>
         <div class="header-actions">
           <button id="exportCurrentDayBtn" class="btn btn-outline btn-small hidden" type="button">Exportar dia atual</button>
@@ -260,6 +263,6 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/inbox/app.js?v=4"></script>
+  <script src="/inbox/app.js?v=8"></script>
 </body>
 </html>

@@ -131,6 +131,23 @@ WEBHOOK_TOKEN=your-webhook-token
 CORS_ORIGINS=http://localhost:8000,http://localhost:3000
 ```
 
+### Número Oficial de Atendimento (Evasão de Duplicidade)
+
+Para evitar loops de mensagens e a duplicação de conversas — onde o sistema tentaria criar um chat com o próprio número do bot no inbox —, o telefone principal do atendimento está bloqueado via código ("hardcoded") no arquivo de ingestão de webhooks.
+
+Atualmente, o sistema possui a regra de ignorar a criação de novas instâncias de conversas associadas ao número **+558332167336**.
+
+> **⚠️ IMPORTANTE:** Se futuramente o número oficial de atendimento da UFPB for alterado, você deverá modificar essa restrição para que o comportamento opere corretamente com a nova linha.  
+> Abra o arquivo genérico de mensagens (`app/services/messages.py`), procure pela função `ingest_inbound_message` (por volta da linha 445) e altere a seguinte condicional para refletir o novo número:
+
+```python
+    # Ignore webhooks where the contact phone is the UFPB system bot itself
+    if contact_phone == "+55NOVO_NUMERO_AQUI":
+        return None
+```
+
+Atualizando esse arquivo e reiniciando a aplicação, o sistema passará automaticamente a ignorar logs duplicados envolvendo esse novo número.
+
 ## 📚 Documentação da API
 
 Acesse a documentação interativa em:

@@ -282,3 +282,48 @@ async def cleanup_uploads(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao apagar arquivos: {str(e)}"
         )
+
+
+@router.delete("/cleanup/contacts", status_code=status.HTTP_200_OK)
+async def cleanup_contacts(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    """
+    Delete all contacts and conversations from the system.
+    
+    This endpoint permanently deletes all conversations and their associated messages.
+    Only administrators can access this endpoint.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        logger.info("Iniciando limpeza de contatos...")
+        from app.models.conversation import Conversation
+        
+        contacts_count = db.query(Conversation).count()
+        logger.info(f"Total de contatos encontrados: {contacts_count}")
+        
+        if contacts_count > 0:
+            db.query(Conversation).delete(synchronize_session=False)
+            db.commit()
+            logger.info(f"{contacts_count} contatos deletados com sucesso")
+        else:
+            logger.info("Nenhum contato encontrado para deletar")
+            
+        return {
+            "message": "Todos os contatos foram apagados com sucesso.",
+            "deleted_count": contacts_count
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao apagar contatos: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao apagar contatos: {str(e)}"
+        )

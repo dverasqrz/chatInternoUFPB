@@ -76,3 +76,11 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN IF NOT EXISTS profile_picture_url VARCHAR(1000);
+                """
+            )
+        )
