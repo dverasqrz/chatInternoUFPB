@@ -311,19 +311,28 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     video_message = _get_nested_dict(message.get("videoMessage"))
     document_message = _get_nested_dict(message.get("documentMessage"))
 
+    from_me = bool(key.get("fromMe") or root.get("fromMe"))
+    raw_sender = _first_text_value(
+        sender.get("phone"), sender.get("id"), root.get("participant"), key.get("participant")
+    )
+    if _normalize_phone(raw_sender) == "+558332167336":
+        from_me = True
+
+    direction = MessageDirection.OUTBOUND if from_me else MessageDirection.INBOUND
+
     contact_phone = _normalize_phone(
         _first_text_value(
+            key.get("remoteJid"),
+            root.get("remoteJid"),
+            payload.get("remoteJid"),
             root.get("phone"),
             root.get("from"),
             sender.get("phone"),
             sender.get("id"),
-            key.get("remoteJid"),
             key.get("participant"),
             message.get("from"),
             payload.get("phone"),
             payload.get("from"),
-            payload.get("remoteJid"),
-            payload.get("remote_jid"),
         )
     )
     if not contact_phone:
@@ -411,6 +420,7 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "event": event,
         "contact_phone": contact_phone,
         "contact_name": contact_name,
+        "direction": direction,
         "message_type": message_type,
         "text_content": text_content,
         "media_url": media_url,
@@ -443,6 +453,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         raise HTTPException(status_code=400, detail="Webhook sem telefone do contato.")
 
     contact_phone = normalized["contact_phone"]
+    direction = normalized.get("direction", MessageDirection.INBOUND)
     
     # Ignore webhooks where the contact phone is the UFPB system bot itself
     if contact_phone == "+558332167336":
@@ -503,16 +514,22 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     conversation.last_message_at = datetime.now(timezone.utc)
 
+    sender_name = normalized["contact_name"]
+    delivery_status = DeliveryStatus.RECEIVED
+    if direction == MessageDirection.OUTBOUND:
+        sender_name = "CAU"
+        delivery_status = DeliveryStatus.SENT
+
     message = Message(
         conversation_id=conversation.id,
-        direction=MessageDirection.INBOUND,
+        direction=direction,
         message_type=normalized["message_type"],
-        delivery_status=DeliveryStatus.RECEIVED,
+        delivery_status=delivery_status,
         text_content=normalized["text_content"],
         media_url=normalized["media_url"],
         media_mime_type=normalized["media_mime_type"],
         media_caption=normalized["media_caption"],
-        sender_name=normalized["contact_name"],
+        sender_name=sender_name,
         sender_phone=normalized["contact_phone"],
         external_message_id=normalized["external_message_id"],
         raw_payload=normalized["raw_payload"],

@@ -1055,7 +1055,8 @@ function buildExportHtmlDocument(data) {
     })
     .join("");
 
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conversa ${data.conversation_id}</title></head>
+  const safeNameForTitle = data.contact_name.replace(/\\s+/g, "_");
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${escapeHtml(safeNameForTitle)}_${escapeHtml(data.date)}</title></head>
   <body style="font-family:Segoe UI,Arial,sans-serif;background:#f5faf7;padding:16px;color:#102b24;">
   <h1 style="margin:0 0 10px;">Relatório de Conversa</h1>
   <p><strong>Cliente:</strong> ${escapeHtml(data.contact_name)} | <strong>Perfil:</strong> ${escapeHtml(data.contact_profile)} | <strong>Telefone:</strong> ${escapeHtml(data.contact_phone)}</p>
@@ -1069,7 +1070,8 @@ async function downloadExportHtml() {
   }
   const { query, date, startTime, endTime } = buildExportQuery();
   const data = await apiRequest(`/conversations/${state.exportContext.conversationId}/export?${query}`);
-  const filename = `conversa_${state.exportContext.conversationId}_${date}_${startTime.replace(":", "")}_${endTime.replace(":", "")}.html`;
+  const safeName = data.contact_name.replace(/\\s+/g, "_");
+  const filename = `${safeName}_${date}.html`;
   downloadBlob(buildExportHtmlDocument(data), filename, "text/html;charset=utf-8");
 }
 
@@ -1085,7 +1087,10 @@ async function downloadExportPdf() {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.detail || "Falha ao gerar PDF.");
   }
-  const filename = `conversa_${state.exportContext.conversationId}_${date}_${startTime.replace(":", "")}_${endTime.replace(":", "")}.pdf`;
+  const conv = state.activeConversations && state.activeConversations.find(c => c.id === state.exportContext.conversationId);
+  const contactName = conv ? (conv.contact_name || conv.contact_phone || "Contato") : "Contato";
+  const safeName = contactName.replace(/\\s+/g, "_");
+  const filename = `${safeName}_${date}.pdf`;
   downloadBlob(await response.blob(), filename, "application/pdf");
 }
 
@@ -1930,12 +1935,12 @@ async function performGlobalSearch() {
       const date = formatDate(r.created_at);
       
       return `
-        <li class="catalog-item" style="cursor: pointer; padding: 12px; border-bottom: 1px solid #eee; display: flex; flex-direction: column; gap: 4px;" onclick="selectConversationAndCloseSearch(${r.conversation_id})">
-          <div style="display: flex; justify-content: space-between;">
-            <strong>${escapeHtml(name)}</strong>
-            <span class="muted" style="font-size: 12px;">${date}</span>
+        <li class="catalog-item" style="cursor: pointer; padding: 14px 16px; border-bottom: 1px solid #eee; display: flex; flex-direction: column; gap: 6px;" onclick="selectConversationAndCloseSearch(${r.conversation_id})">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+            <strong style="color: var(--text); font-size: 0.95rem;">${escapeHtml(name)}</strong>
+            <span style="font-size: 0.72rem; color: #4e6c62; background: #e0f2ec; padding: 3px 8px; border-radius: 12px; font-weight: 600; white-space: nowrap;">${date}</span>
           </div>
-          <div style="font-size: 14px; color: #333;">${escapeHtml(shortText)}</div>
+          <div style="font-size: 0.85rem; color: #4e6c62; line-height: 1.4;">${escapeHtml(shortText)}</div>
         </li>
       `;
     }).join("");

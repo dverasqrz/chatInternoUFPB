@@ -55,7 +55,7 @@ def _message_content(message: Message) -> str:
 def _author_label(message: Message, conversation: Conversation, contact_profile: str) -> tuple[str, str]:
     if message.direction == MessageDirection.INBOUND:
         display_name = conversation.contact_name or "Cliente sem nome"
-        role_label = f"cliente ({contact_profile})"
+        role_label = contact_profile
         return display_name, role_label
     display_name = message.sender_name or "Funcionário"
     return display_name, "funcionário"
@@ -180,7 +180,8 @@ def get_conversation_and_messages_for_range(
 
 def build_pdf_bytes(export_data: ConversationExportResponse) -> bytes:
     buffer = BytesIO()
-    document = SimpleDocTemplate(buffer, pagesize=A4, title=f"Conversa_{export_data.conversation_id}")
+    safe_name = export_data.contact_name.replace(" ", "_")
+    document = SimpleDocTemplate(buffer, pagesize=A4, title=f"{safe_name}_{export_data.date}")
     styles = getSampleStyleSheet()
     body_style = styles["BodyText"]
     body_style.leading = 14

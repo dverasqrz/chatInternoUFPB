@@ -1302,26 +1302,39 @@ select:focus {
 
 }
 
+#loginOverlay {
+  background: rgba(10, 43, 36, 0.97); /* Fundo quase sólido para esconder a aplicação atrás */
+}
+
+#loginOverlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: 
+    url('/inbox/img/brasao.png'),
+    url('/inbox/img/sti_logo.png');
+  background-position: 
+    8% center,
+    92% center;
+  background-repeat: no-repeat;
+  background-size: min(24vw, 360px);
+  opacity: 0.08; /* Marca d'água super suave para efeito bonito */
+  z-index: -1;
+  pointer-events: none;
+}
+
 
 
 .modal {
-
-  width: min(450px, 96vw);
-
+  width: 96vw;
+  max-width: 380px;
   border: 1px solid var(--line);
-
-  border-radius: 14px;
-
+  border-radius: 12px;
   background: var(--panel);
-
-  box-shadow: 0 16px 26px rgba(8, 29, 24, 0.22);
-
-  padding: 16px;
-
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  padding: 20px;
   display: grid;
-
-  gap: 8px;
-
+  gap: 12px;
 }
 
 
@@ -1451,15 +1464,10 @@ select:focus {
 
 
 .modal-large {
-
-  max-width: 600px;
-
-  max-height: 85vh;
-
+  max-width: 500px;
+  max-height: 80vh;
   display: flex;
-
   flex-direction: column;
-
 }
 
 
