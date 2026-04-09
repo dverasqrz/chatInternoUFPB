@@ -29,8 +29,20 @@ def _normalize_phone(raw: Any) -> str | None:
     phone = re.sub(r"\D", "", str(raw))
     if not phone:
         return None
-    if phone.startswith("55"):
-        return f"+{phone}"
+        
+    # Auto-add 55 for local Brazilian numbers
+    if len(phone) in (10, 11) and not phone.startswith("55"):
+        phone = f"55{phone}"
+        
+    # WhatsApp Brazil rule: JIDs for DDD > 28 usually drop the 9th digit.
+    if phone.startswith("55") and len(phone) == 13 and phone[4] == "9":
+        try:
+            ddd = int(phone[2:4])
+            if ddd > 28:
+                phone = phone[:4] + phone[5:]
+        except ValueError:
+            pass
+            
     return f"+{phone}"
 
 

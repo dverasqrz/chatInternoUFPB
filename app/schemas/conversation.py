@@ -11,3 +11,8 @@ class ConversationRead(BaseModel):
     last_message_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ConversationCreate(BaseModel):
+    contact_phone: str
+    contact_name: str | None = None

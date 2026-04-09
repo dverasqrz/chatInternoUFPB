@@ -11,7 +11,7 @@ from app.db.session import get_db
 from app.models.conversation import Conversation
 from app.models.message import Message
 from app.models.user import User
-from app.schemas.conversation import ConversationRead
+from app.schemas.conversation import ConversationRead, ConversationCreate
 from app.schemas.export import ConversationExportResponse
 from app.schemas.message import (
     MessageBulkDeleteRequest,
@@ -60,6 +60,70 @@ def list_conversations(
     ).all()
     return [ConversationRead.model_validate(item) for item in conversations]
 
+
+@router.post("", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)
+def create_conversation(
+    payload: ConversationCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user_password_changed),
+) -> ConversationRead:
+    from app.services.messages import _normalize_phone, _get_or_create_conversation
+    
+    # Normaliza o telefone enviado
+    base_phone = _normalize_phone(payload.contact_phone)
+    if not base_phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Telefone inválido."
+        )
+        
+    # Tratamento específico para o nono dígito no Brasil (+55)
+    # Se for BR e tiver 13 dígitos (ex: +55 83 9XXXX-XXXX), 
+    # ou 12 dígitos (ex: +55 83 XXXX-XXXX), buscar pelo outro também.
+    phones_to_check = [base_phone]
+    if base_phone.startswith("+55") and len(base_phone) == 14 and base_phone[5] == "9":
+        # Tem o 9, adicionar versão sem o 9
+        phones_to_check.append(base_phone[:5] + base_phone[6:])
+    elif base_phone.startswith("+55") and len(base_phone) == 13:
+        # Não tem o 9, adicionar versão com o 9
+        phones_to_check.append(base_phone[:5] + "9" + base_phone[5:])
+        
+    # Busca por conversas existentes verificando ambas as variações
+    existing = db.scalar(
+        select(Conversation).where(Conversation.contact_phone.in_(phones_to_check))
+    )
+    
+    if existing:
+        if payload.contact_name and existing.contact_name != payload.contact_name:
+            existing.contact_name = payload.contact_name
+            db.commit()
+            db.refresh(existing)
+        return ConversationRead.model_validate(existing)
+        
+    # Se não existir, cria a conversa usando o formato primário (com o 9 se fornecido)
+    conversation = _get_or_create_conversation(
+        db=db, 
+        contact_phone=base_phone, 
+        contact_name=payload.contact_name
+    )
+    # Garante commit no bd da API
+    db.commit()
+    db.refresh(conversation)
+    
+    return ConversationRead.model_validate(conversation)
+
+
+@router.get("/contacts/all", response_model=list[ConversationRead])
+def list_contacts(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user_password_changed),
+) -> list[ConversationRead]:
+    # Returns all users ever interacted with, irrespective of having active messages
+    conversations = db.scalars(
+        select(Conversation)
+        .order_by(Conversation.contact_name.asc(), Conversation.contact_phone.asc())
+    ).all()
+    return [ConversationRead.model_validate(item) for item in conversations]
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageRead])
 def list_messages(

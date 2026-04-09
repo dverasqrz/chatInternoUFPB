@@ -101,6 +101,20 @@ const els = {
   downloadHtmlBtn: document.getElementById("downloadHtmlBtn"),
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
   cleanupSystemBtn: document.getElementById("cleanupSystemBtn"),
+  appResizer: document.getElementById("appResizer"),
+  leftPane: document.querySelector(".left-pane"),
+  addContactBtn: document.getElementById("addContactBtn"),
+  newContactOverlay: document.getElementById("newContactOverlay"),
+  newContactForm: document.getElementById("newContactForm"),
+  newContactName: document.getElementById("newContactName"),
+  newContactPhone: document.getElementById("newContactPhone"),
+  newContactError: document.getElementById("newContactError"),
+  closeNewContactBtn: document.getElementById("closeNewContactBtn"),
+  catalogBtn: document.getElementById("catalogBtn"),
+  catalogOverlay: document.getElementById("catalogOverlay"),
+  closeCatalogBtn: document.getElementById("closeCatalogBtn"),
+  catalogSearch: document.getElementById("catalogSearch"),
+  catalogList: document.getElementById("catalogList"),
   toast: document.getElementById("toast"),
 };
 
@@ -116,6 +130,7 @@ function clearSession() {
   state.user = null;
   state.selectedConversationId = null;
   state.conversations = [];
+  state.catalogContacts = [];
   state.messageSignaturesByConversation = {};
   state.pendingMessageRefresh = null;
   state.loginChallengeId = null;
@@ -214,12 +229,15 @@ async function apiRequest(path, options = {}) {
 
   if (response.status === 401) {
     await logout(false);
-    const authError = new Error(data.detail || "Sessão expirada. Faça login novamente.");
+    const errorMsg = data.error?.message || data.detail || "Sessão expirada. Faça login novamente.";
+    const authError = new Error(errorMsg);
     authError.status = 401;
     throw authError;
   }
+
   if (!response.ok) {
-    const requestError = new Error(data.detail || `Erro na requisição (${response.status}).`);
+    const errorMsg = data.error?.message || data.detail || `Erro da API: ${response.status}`;
+    const requestError = new Error(errorMsg);
     requestError.status = response.status;
     requestError.responseData = data;
     requestError.responseText = text;
@@ -853,10 +871,11 @@ function renderConversations() {
   }
   els.conversationList.innerHTML = state.conversations
     .map((conversation) => {
-      const activeClass = conversation.id === state.selectedConversationId ? "active" : "";
+      const activeClass = String(conversation.id) === String(state.selectedConversationId) ? "active" : "";
+      const fallbackName = conversation.contact_name || conversation.contact_phone || "Contato sem nome";
       return `
         <li class="conversation-item ${activeClass}" data-id="${conversation.id}">
-          <div class="conversation-name">${escapeHtml(conversation.contact_name || "Contato sem nome")}</div>
+          <div class="conversation-name">${escapeHtml(fallbackName)}</div>
           <div class="conversation-phone">${escapeHtml(conversation.contact_phone)}</div>
           <div class="conversation-phone">Atualizado: ${formatDate(conversation.last_message_at)}</div>
         </li>
@@ -1158,18 +1177,39 @@ function exportCurrentDay() {
 
 async function loadConversations(preserveSelection = true) {
   const conversations = await apiRequest("/conversations?limit=100");
+  
+  if (preserveSelection && state.selectedConversationId) {
+    const existInNew = conversations.some(c => String(c.id) === String(state.selectedConversationId));
+    if (!existInNew) {
+      let missingContact = state.conversations?.find(c => String(c.id) === String(state.selectedConversationId));
+      if (!missingContact && state.catalogContacts) {
+        missingContact = state.catalogContacts.find(c => String(c.id) === String(state.selectedConversationId));
+      }
+      if (missingContact) {
+        conversations.unshift(missingContact);
+      } else {
+        conversations.unshift({
+          id: state.selectedConversationId,
+          contact_name: els.chatTitle.textContent !== "Selecione uma conversa" ? els.chatTitle.textContent : null,
+          contact_phone: els.chatSubtitle.textContent !== "Aguardando seleção" ? els.chatSubtitle.textContent : "",
+          last_message_at: new Date().toISOString()
+        });
+      }
+    }
+  }
+
   state.conversations = conversations;
   const previousSelection = state.selectedConversationId;
   if (!preserveSelection || !state.selectedConversationId) {
     state.selectedConversationId = conversations[0]?.id || null;
-  } else if (!conversations.some((item) => item.id === state.selectedConversationId)) {
+  } else if (!conversations.some((item) => String(item.id) === String(state.selectedConversationId))) {
     state.selectedConversationId = conversations[0]?.id || null;
   }
   const selectionChanged = previousSelection !== state.selectedConversationId;
   renderConversations();
   if (state.selectedConversationId) {
-    const selected = conversations.find((item) => item.id === state.selectedConversationId);
-    els.chatTitle.textContent = selected?.contact_name || "Contato sem nome";
+    const selected = conversations.find((item) => String(item.id) === String(state.selectedConversationId));
+    els.chatTitle.textContent = selected?.contact_name || selected?.contact_phone || "Contato sem nome";
     els.chatSubtitle.textContent = selected?.contact_phone || "-";
     await loadMessages({ forceRender: selectionChanged });
   } else {
@@ -1263,8 +1303,8 @@ async function loadMessages(options = {}) {
 async function selectConversation(id) {
   state.selectedConversationId = id;
   renderConversations();
-  const selected = state.conversations.find((item) => item.id === id);
-  els.chatTitle.textContent = selected?.contact_name || "Contato sem nome";
+  const selected = state.conversations.find((item) => String(item.id) === String(id));
+  els.chatTitle.textContent = selected?.contact_name || selected?.contact_phone || "Contato sem nome";
   els.chatSubtitle.textContent = selected?.contact_phone || "-";
   
   // Limpa estado do scroll infinito ao trocar de conversa
@@ -1441,6 +1481,151 @@ async function initializeInbox() {
   }, 4000);
 }
 
+function setupResizer() {
+  if (!els.appResizer || !els.leftPane) return;
+  const savedWidth = localStorage.getItem("ufpb_left_pane_width");
+  if (savedWidth) {
+    els.leftPane.style.width = savedWidth;
+  }
+  let isResizing = false;
+  els.appResizer.addEventListener("mousedown", (e) => {
+    isResizing = true;
+    els.appResizer.classList.add("is-resizing");
+    document.body.style.cursor = "col-resize";
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (!isResizing) return;
+    const newWidth = Math.max(320, typeof window !== "undefined" ? Math.min(e.clientX, window.innerWidth * 0.5) : e.clientX);
+    els.leftPane.style.width = `${newWidth}px`;
+  });
+  document.addEventListener("mouseup", () => {
+    if (isResizing) {
+      isResizing = false;
+      els.appResizer.classList.remove("is-resizing");
+      document.body.style.cursor = "";
+      localStorage.setItem("ufpb_left_pane_width", els.leftPane.style.width);
+    }
+  });
+}
+
+function openNewContactModal() {
+  els.newContactError.textContent = "";
+  els.newContactName.value = "";
+  els.newContactPhone.value = "";
+  els.newContactOverlay.classList.remove("hidden");
+  els.newContactName.focus();
+}
+
+function closeNewContactModal() {
+  els.newContactOverlay.classList.add("hidden");
+}
+
+async function createNewContact(event) {
+  event.preventDefault();
+  els.newContactError.textContent = "";
+  try {
+    const payload = {
+      contact_phone: els.newContactPhone.value.trim(),
+      contact_name: els.newContactName.value.trim() || undefined
+    };
+    const response = await apiRequest("/conversations", { 
+      method: "POST", 
+      body: JSON.stringify(payload) 
+    });
+    closeNewContactModal();
+    showToast("Contato criado com sucesso!", "success");
+    selectContactFromCatalog(response);
+  } catch (error) {
+    els.newContactError.textContent = error.message || "Erro ao criar contato.";
+  }
+}
+
+async function loadCatalog() {
+  els.catalogList.innerHTML = '<li style="padding: 12px; text-align: center;">Carregando...</li>';
+  els.catalogOverlay.classList.remove("hidden");
+  try {
+    const contacts = await apiRequest("/conversations/contacts/all");
+    state.catalogContacts = contacts;
+    renderCatalog(state.catalogContacts);
+  } catch (error) {
+    els.catalogList.innerHTML = `<li style="padding: 12px; color: red;">Erro ao carregar contatos: ${error.message}</li>`;
+  }
+}
+
+function renderCatalog(contactsToRender) {
+  els.catalogList.innerHTML = "";
+  if (contactsToRender.length === 0) {
+    els.catalogList.innerHTML = '<li style="padding: 12px; text-align: center; color: var(--muted);">Nenhum contato encontrado.</li>';
+    return;
+  }
+  
+  contactsToRender.forEach(contact => {
+    const li = document.createElement("li");
+    li.className = "catalog-item";
+    
+    const info = document.createElement("div");
+    info.className = "catalog-info";
+    
+    const name = document.createElement("span");
+    name.className = "catalog-name";
+    name.textContent = contact.contact_name || "Sem Nome";
+    
+    const phone = document.createElement("span");
+    phone.className = "catalog-phone";
+    phone.textContent = contact.contact_phone;
+    
+    info.appendChild(name);
+    info.appendChild(phone);
+    
+    const actionArea = document.createElement("div");
+    const chatBtn = document.createElement("button");
+    chatBtn.type = "button";
+    chatBtn.className = "btn btn-small";
+    chatBtn.textContent = "Conversar";
+    
+    chatBtn.addEventListener("click", () => selectContactFromCatalog(contact));
+    
+    actionArea.appendChild(chatBtn);
+    
+    li.appendChild(info);
+    li.appendChild(actionArea);
+    
+    els.catalogList.appendChild(li);
+  });
+}
+
+function selectContactFromCatalog(contact) {
+  els.catalogOverlay.classList.add("hidden");
+  
+  // Verify if it's already in the sidebar
+  let existingIndex = state.conversations.findIndex(c => c.id === contact.id);
+  
+  if (existingIndex > -1) {
+    // If it exists, move it to the top
+    const existingChat = state.conversations.splice(existingIndex, 1)[0];
+    state.conversations.unshift(existingChat);
+  } else {
+    // Otherwise, push it to the sidebar artificially
+    state.conversations.unshift(contact);
+  }
+  
+  renderConversations();
+  
+  const item = Array.from(els.conversationList.children).find(
+    (li) => li.dataset.id === String(contact.id)
+  );
+  if (item) item.click();
+}
+
+els.catalogSearch.addEventListener("input", (e) => {
+  const query = e.target.value.toLowerCase();
+  const filtered = state.catalogContacts.filter(c => 
+    (c.contact_name && c.contact_name.toLowerCase().includes(query)) ||
+    (c.contact_phone && c.contact_phone.includes(query))
+  );
+  renderCatalog(filtered);
+});
+
 function bindEvents() {
   els.refreshChallengeBtn.addEventListener("click", async () => {
     await fetchLoginChallenge(true);
@@ -1604,9 +1789,16 @@ function bindEvents() {
       els.exportError.textContent = error.message || "Falha ao exportar PDF.";
     }
   });
+  els.addContactBtn.addEventListener("click", openNewContactModal);
+  els.closeNewContactBtn.addEventListener("click", closeNewContactModal);
+  els.newContactForm.addEventListener("submit", createNewContact);
+  
+  els.catalogBtn.addEventListener("click", loadCatalog);
+  els.closeCatalogBtn.addEventListener("click", () => els.catalogOverlay.classList.add("hidden"));
 }
 
 async function bootstrap() {
+  setupResizer();
   bindEvents();
   setComposerVisibility();
   resetComposer();

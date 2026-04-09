@@ -75,10 +75,16 @@
 
       <div class="conversation-header">
         <h2>Conversas</h2>
-        <button id="refreshConversationsBtn" class="btn btn-small">Atualizar</button>
+        <div class="header-actions">
+          <button id="addContactBtn" class="btn-header">Novo</button>
+          <button id="catalogBtn" class="btn-header">Catálogo</button>
+          <button id="refreshConversationsBtn" class="btn-header">Atualizar</button>
+        </div>
       </div>
       <ul id="conversationList" class="conversation-list"></ul>
     </aside>
+
+    <div class="app-resizer" id="appResizer"></div>
 
     <main class="main-pane">
       <header class="chat-header">
@@ -225,9 +231,35 @@
       <small id="exportError" class="error"></small>
     </div>
   </div>
+  <div id="catalogOverlay" class="overlay hidden">
+    <div class="modal modal-large">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="margin: 0;">Catálogo de Contatos</h2>
+        <button id="closeCatalogBtn" class="btn btn-outline btn-small">Fechar</button>
+      </div>
+      <input id="catalogSearch" type="text" placeholder="Buscar por nome ou número..." style="margin-bottom: 16px;">
+      <ul id="catalogList" class="catalog-list"></ul>
+    </div>
+  </div>
+
+  <div id="newContactOverlay" class="overlay hidden">
+    <form id="newContactForm" class="modal">
+      <h2>Novo Contato</h2>
+      <p>Adicione um contato informando o nome e o celular (com DDD).</p>
+      <label for="newContactName">Nome</label>
+      <input id="newContactName" required maxlength="120" placeholder="Nome do contato">
+      <label for="newContactPhone">Telefone</label>
+      <input id="newContactPhone" required placeholder="Ex: 83 91234-5678">
+      <div class="modal-actions">
+        <button id="closeNewContactBtn" type="button" class="btn btn-outline">Cancelar</button>
+        <button type="submit" class="btn">Adicionar</button>
+      </div>
+      <small id="newContactError" class="error"></small>
+    </form>
+  </div>
 
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/inbox/app.js"></script>
+  <script src="/inbox/app.js?v=4"></script>
 </body>
 </html>
