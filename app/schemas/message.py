@@ -64,3 +64,13 @@ class MessageBulkDeleteRequest(BaseModel):
 class MessageBulkDeleteResponse(BaseModel):
     status: str = "ok"
     deleted_count: int
+
+
+class MessageSearchResult(BaseModel):
+    message_id: int
+    conversation_id: int
+    contact_name: str | None = None
+    contact_phone: str | None = None
+    text_content: str | None = None
+    created_at: datetime
+    direction: MessageDirection

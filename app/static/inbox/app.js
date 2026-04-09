@@ -58,7 +58,13 @@ const els = {
   newUserEmail: document.getElementById("newUserEmail"),
   newUserPassword: document.getElementById("newUserPassword"),
   createUserBtn: document.getElementById("createUserBtn"),
-  refreshConversationsBtn: document.getElementById("refreshConversationsBtn"),
+  searchGlobalBtn: document.getElementById("searchGlobalBtn"),
+  searchGlobalOverlay: document.getElementById("searchGlobalOverlay"),
+  closeSearchGlobalBtn: document.getElementById("closeSearchGlobalBtn"),
+  searchGlobalInput: document.getElementById("searchGlobalInput"),
+  doSearchGlobalBtn: document.getElementById("doSearchGlobalBtn"),
+  searchGlobalStatus: document.getElementById("searchGlobalStatus"),
+  searchGlobalResults: document.getElementById("searchGlobalResults"),
   conversationList: document.getElementById("conversationList"),
   chatHeaderAvatar: document.getElementById("chatHeaderAvatar"),
   chatTitle: document.getElementById("chatTitle"),
@@ -1784,12 +1790,18 @@ function bindEvents() {
       showToast(error.message || "Erro ao enviar mensagem.");
     }
   });
-  els.refreshConversationsBtn.addEventListener("click", async () => {
-    try {
-      await loadConversations(true);
-    } catch (error) {
-      showToast(error.message || "Erro ao atualizar conversas.");
-    }
+  els.searchGlobalBtn.addEventListener("click", () => {
+    els.searchGlobalInput.value = "";
+    els.searchGlobalStatus.textContent = "";
+    els.searchGlobalResults.innerHTML = "";
+    els.searchGlobalOverlay.classList.remove("hidden");
+    setTimeout(() => els.searchGlobalInput.focus(), 50);
+  });
+  
+  els.closeSearchGlobalBtn.addEventListener("click", () => els.searchGlobalOverlay.classList.add("hidden"));
+  els.doSearchGlobalBtn.addEventListener("click", performGlobalSearch);
+  els.searchGlobalInput.addEventListener("keypress", (e) => {
+    if (e.key === "Enter") performGlobalSearch();
   });
   els.exportCurrentDayBtn.addEventListener("click", () => exportCurrentDay());
   els.uploadImageBtn.addEventListener("click", () => els.imageFileInput.click());
@@ -1890,6 +1902,54 @@ function bindEvents() {
   els.catalogBtn.addEventListener("click", loadCatalog);
   els.closeCatalogBtn.addEventListener("click", () => els.catalogOverlay.classList.add("hidden"));
 }
+
+async function performGlobalSearch() {
+  const q = els.searchGlobalInput.value.trim();
+  if (q.length < 3) {
+    els.searchGlobalStatus.textContent = "Digite pelo menos 3 caracteres.";
+    return;
+  }
+  els.searchGlobalStatus.textContent = "Pesquisando...";
+  els.searchGlobalResults.innerHTML = "";
+  els.doSearchGlobalBtn.disabled = true;
+  
+  try {
+    const results = await apiRequest(`/conversations/search/messages?q=${encodeURIComponent(q)}`);
+    if (!results || !results.length) {
+      els.searchGlobalStatus.textContent = "Nenhuma mensagem encontrada.";
+      els.doSearchGlobalBtn.disabled = false;
+      return;
+    }
+    
+    els.searchGlobalStatus.textContent = `${results.length} resultado(s) encontrado(s).`;
+    els.searchGlobalResults.innerHTML = results.map(r => {
+      const name = r.contact_name || r.contact_phone || "Contato";
+      const shortText = r.text_content && r.text_content.length > 120 
+        ? r.text_content.substring(0, 120) + "..." 
+        : (r.text_content || "[Mídia/Anexo]");
+      const date = formatDate(r.created_at);
+      
+      return `
+        <li class="catalog-item" style="cursor: pointer; padding: 12px; border-bottom: 1px solid #eee; display: flex; flex-direction: column; gap: 4px;" onclick="selectConversationAndCloseSearch(${r.conversation_id})">
+          <div style="display: flex; justify-content: space-between;">
+            <strong>${escapeHtml(name)}</strong>
+            <span class="muted" style="font-size: 12px;">${date}</span>
+          </div>
+          <div style="font-size: 14px; color: #333;">${escapeHtml(shortText)}</div>
+        </li>
+      `;
+    }).join("");
+  } catch (error) {
+    els.searchGlobalStatus.textContent = "Erro ao pesquisar.";
+  } finally {
+    els.doSearchGlobalBtn.disabled = false;
+  }
+}
+
+window.selectConversationAndCloseSearch = async function(conversationId) {
+  els.searchGlobalOverlay.classList.add("hidden");
+  await selectConversation(conversationId);
+};
 
 async function bootstrap() {
   setupResizer();

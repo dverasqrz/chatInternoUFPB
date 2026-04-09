@@ -11,9 +11,15 @@
 <body>
   <div class="app-shell">
     <aside class="left-pane">
-      <header class="brand-block">
-        <h1>UFPB Chat</h1>
-        <p>Inbox institucional multiatendente</p>
+      <header class="brand-block" style="display: flex; align-items: center; justify-content: flex-start; gap: 12px; padding: 4px 6px; min-height: 64px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img src="/inbox/img/brasao.png" alt="UFPB" style="height: 48px; width: auto; object-fit: contain;">
+          <img src="/inbox/img/sti_logo.png" alt="STI" style="height: 48px; width: auto; object-fit: contain;">
+        </div>
+        <div style="display: flex; flex-direction: column; justify-content: center;">
+          <h1 style="font-size: 1.15rem; margin: 0; font-family: Sora, Manrope, sans-serif; line-height: 1.2;">Atendimento CAU</h1>
+          <p style="margin: 0; font-size: 0.85rem; color: var(--muted); font-weight: 500;">UFPB</p>
+        </div>
       </header>
 
       <div class="user-card">
@@ -78,7 +84,7 @@
         <div class="header-actions">
           <button id="addContactBtn" class="btn-header">Novo</button>
           <button id="catalogBtn" class="btn-header">Catálogo</button>
-          <button id="refreshConversationsBtn" class="btn-header">Atualizar</button>
+          <button id="searchGlobalBtn" class="btn-header">Pesquisar</button>
         </div>
       </div>
       <ul id="conversationList" class="conversation-list"></ul>
@@ -259,6 +265,25 @@
       </div>
       <small id="newContactError" class="error"></small>
     </form>
+  </div>
+
+  <div id="searchGlobalOverlay" class="overlay hidden">
+    <div class="modal modal-large">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="margin: 0;">Pesquisar Mensagens</h2>
+        <button id="closeSearchGlobalBtn" class="btn btn-outline btn-small">Fechar</button>
+      </div>
+      <div>
+        <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+          <input id="searchGlobalInput" type="text" placeholder="Digite uma palavra ou frase..." style="flex: 1;" minlength="3">
+          <button id="doSearchGlobalBtn" class="btn">Buscar</button>
+        </div>
+        <p id="searchGlobalStatus" class="muted" style="margin-bottom: 8px;"></p>
+        <div class="users-table-wrapper" style="max-height: 400px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
+          <ul id="searchGlobalResults" class="catalog-list" style="margin: 0; padding: 0; list-style: none;"></ul>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="toast" class="toast hidden"></div>

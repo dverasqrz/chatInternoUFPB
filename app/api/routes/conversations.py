@@ -18,6 +18,7 @@ from app.schemas.message import (
     MessageBulkDeleteResponse,
     MessageRead,
     OutboundMessageCreate,
+    MessageSearchResult,
 )
 from app.services.conversation_export import (
     build_export_payload,
@@ -124,6 +125,33 @@ def list_contacts(
         .order_by(Conversation.contact_name.asc(), Conversation.contact_phone.asc())
     ).all()
     return [ConversationRead.model_validate(item) for item in conversations]
+
+@router.get("/search/messages", response_model=list[MessageSearchResult])
+def search_messages(
+    q: str = Query(..., min_length=3),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user_password_changed),
+) -> list[MessageSearchResult]:
+    query_str = f"%{q}%"
+    messages_and_convs = db.query(Message, Conversation).\
+        join(Conversation, Message.conversation_id == Conversation.id).\
+        filter(Message.text_content.ilike(query_str)).\
+        order_by(Message.created_at.desc()).\
+        limit(50).all()
+
+    results = []
+    for msg, conv in messages_and_convs:
+        results.append(MessageSearchResult(
+            message_id=msg.id,
+            conversation_id=conv.id,
+            contact_name=conv.contact_name,
+            contact_phone=conv.contact_phone,
+            text_content=msg.text_content,
+            created_at=msg.created_at,
+            direction=msg.direction,
+        ))
+    return results
+
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageRead])
 def list_messages(
