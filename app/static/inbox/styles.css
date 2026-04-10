@@ -924,6 +924,18 @@ select {
 
 
 
+#textContent {
+
+  min-height: 120px;
+
+  resize: both;
+
+  overflow: auto;
+
+}
+
+
+
 input:focus,
 
 textarea:focus,
@@ -1055,17 +1067,221 @@ select:focus {
 
 
 .admin-cleanup-form button {
-
   width: 100%;
-
   margin-top: 8px;
-
   font-size: 0.85rem;
-
-  padding: 8px;
-
+  padding: 8px 12px;
   font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--panel);
+  color: var(--text);
+}
 
+.admin-cleanup-form button:hover {
+  background: var(--panel-soft);
+  border-color: #9bc8b8;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.admin-cleanup-form button:active {
+  transform: translateY(0);
+}
+
+/* ===== Seção de Templates Administrativos ===== */
+.admin-templates-section {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.admin-templates-section h4 {
+  color: var(--text);
+  margin-bottom: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.templates-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.templates-header p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 0;
+  flex: 1;
+  margin-right: 16px;
+}
+
+.templates-summary {
+  padding: 12px;
+  background: var(--panel-soft);
+  border-radius: 6px;
+  border-left: 4px solid #9bc8b8;
+}
+
+.templates-summary p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.templates-summary .templates-count {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.templates-summary .templates-list {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.template-badge {
+  background: #9bc8b8;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.template-badge.system {
+  background: #ff9800;
+}
+
+/* ===== Modal de Emojis ===== */
+.emoji-modal {
+  max-width: 500px;
+  width: 90%;
+  max-height: 90vh;
+  display: flex !important;
+  flex-direction: column;
+  gap: 0 !important;
+}
+
+.emoji-modal .modal-body {
+  overflow-y: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.emoji-search {
+  margin-bottom: 16px;
+}
+
+.emoji-search input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  background: var(--panel);
+  color: var(--text);
+}
+
+.emoji-categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.emoji-category-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.emoji-category-btn:hover {
+  background: var(--panel-soft);
+  border-color: #9bc8b8;
+}
+
+.emoji-category-btn.active {
+  background: #9bc8b8;
+  color: white;
+  border-color: #9bc8b8;
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  justify-items: center;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.emoji-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: var(--transition-fast);
+  background: var(--panel);
+  border: 1px solid transparent;
+}
+
+.emoji-item:hover {
+  background: var(--panel-soft);
+  border-color: #9bc8b8;
+  transform: scale(1.1);
+}
+
+.emoji-item:active {
+  transform: scale(0.95);
+}
+
+/* Scrollbar personalizada para emoji grid */
+.emoji-grid::-webkit-scrollbar {
+  width: 6px;
+}
+
+.emoji-grid::-webkit-scrollbar-track {
+  background: var(--panel-soft);
+  border-radius: 3px;
+}
+
+.emoji-grid::-webkit-scrollbar-thumb {
+  background: #9bc8b8;
+  border-radius: 3px;
+}
+
+.emoji-grid::-webkit-scrollbar-thumb:hover {
+  background: #7fb8a8;
 }
 
 
@@ -1747,12 +1963,345 @@ select:focus {
   width: 100% !important;
   height: 100% !important;
   max-width: 100% !important;
-  max-height: 100% !important;
-  min-width: 100% !important;
-  min-height: 100% !important;
-  object-fit: cover !important;
-  border-radius: 50% !important;
-  display: block !important;
-  margin: 0 !important;
-  padding: 0 !important;
+}
+
+/* ===== Mensagens Prontas (Templates) ===== */
+.templates-modal {
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.templates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.template-item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  position: relative;
+}
+
+.template-item:hover {
+  border-color: #9bc8b8;
+  background: var(--panel-soft);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.template-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.template-title {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 1rem;
+  margin: 0;
+}
+
+.template-category {
+  background: #9bc8b8;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.template-content {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.template-item:hover .template-content {
+  color: var(--text);
+}
+
+/* Animação de entrada para templates */
+@keyframes slideInTemplate {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.template-item {
+  animation: slideInTemplate var(--transition-smooth) ease;
+}
+
+/* Indicador visual de template selecionado */
+.template-item.selected {
+  border-color: #9bc8b8;
+  background: rgba(155, 200, 184, 0.1);
+}
+
+.template-item.selected::before {
+  content: "!";
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: #9bc8b8;
+  color: white;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* ===== Administração de Templates ===== */
+.template-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.template-system-badge {
+  background: #ff9800;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.template-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.btn-small {
+  padding: 6px 10px;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+  transition: var(--transition-fast);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-small:hover {
+  background: var(--panel-soft);
+  border-color: #9bc8b8;
+}
+
+.btn-small.btn-danger {
+  border-color: #f44336;
+  color: #f44336;
+}
+
+.btn-small.btn-danger:hover {
+  background: #f44336;
+  color: white;
+}
+
+.btn-small.btn-outline {
+  border-color: #9bc8b8;
+  color: #9bc8b8;
+}
+
+.btn-small.btn-outline:hover {
+  background: #9bc8b8;
+  color: white;
+}
+
+.add-template-btn {
+  width: 100%;
+  margin-bottom: 16px;
+  justify-content: center;
+  padding: 12px;
+  border-radius: 8px;
+  background: #9bc8b8;
+  color: white;
+  border: none;
+  font-weight: 500;
+}
+
+.add-template-btn:hover {
+  background: #7fb8a8;
+}
+
+/* ===== Modal de Edição de Templates ===== */
+.template-editor-modal {
+  max-width: 700px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.template-editor-modal .form-group {
+  margin-bottom: 20px;
+}
+
+.template-editor-modal label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.template-editor-modal input,
+.template-editor-modal textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  transition: var(--transition-fast);
+}
+
+.template-editor-modal input:focus,
+.template-editor-modal textarea:focus {
+  outline: none;
+  border-color: #9bc8b8;
+  box-shadow: 0 0 0 3px rgba(155, 200, 184, 0.1);
+}
+
+.template-editor-modal textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+}
+
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.warning-message {
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid #ff9800;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 20px;
+  color: #ff9800;
+  font-size: 0.85rem;
+}
+
+.warning-message strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* ===== Botões ===== */
+.btn-primary {
+  background: #9bc8b8;
+  color: white;
+  border: none;
+}
+
+.btn-primary:hover {
+  background: #7fb8a8;
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.btn-outline:hover {
+  background: var(--panel-soft);
+  border-color: #9bc8b8;
+  color: var(--text);
+}
+
+.btn-danger {
+  background: #f44336;
+  color: white;
+  border: none;
+}
+
+.btn-danger:hover {
+  background: #d32f2f;
+}
+
+/* ===== Estados de Templates ===== */
+.template-empty-state,
+.template-error-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+}
+
+.template-empty-state p,
+.template-error-state p {
+  margin: 10px 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.template-empty-state p:first-child,
+.template-error-state p:first-child {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 1rem;
+  margin-bottom: 15px;
+}
+
+.template-error-state {
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid #f44336;
+  border-radius: 8px;
+  color: #f44336;
+}
+
+.template-error-state p:first-child {
+  color: #f44336;
+  font-weight: 600;
 }

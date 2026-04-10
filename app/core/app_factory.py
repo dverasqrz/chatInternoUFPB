@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.exceptions import setup_exception_handlers
@@ -83,25 +84,53 @@ class ApplicationFactory:
     
     def _setup_cors(self, app: FastAPI) -> None:
         """
-        Configure CORS middleware for cross-origin requests.
+        Configure CORS settings."""
+        settings = get_settings()
         
-        Parses CORS origins from settings and configures appropriate headers.
-        Supports both development (wildcard) and production (specific origins) modes.
-        """
-        origins = [origin.strip() for origin in self.settings.cors_origins.split(",") if origin.strip()]
-        if not origins:
-            origins = ["*"]
-        
-        # Allow credentials only when not using wildcard origins
-        allow_credentials = origins != ["*"]
+        # Parse CORS origins from string
+        origins = []
+        if settings.cors_origins == "*":
+            origins.append("*")
+        else:
+            origins.extend([origin.strip() for origin in settings.cors_origins.split(",")])
         
         app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
-            allow_credentials=allow_credentials,
-            allow_methods=["*"],
-            allow_headers=["*"],
+            allow_credentials=settings.cors_allow_credentials,
+            allow_methods=settings.cors_allow_methods,
+            allow_headers=settings.cors_allow_headers,
         )
+        logger.info(f" CORS configured with origins: {origins}")
+
+    def _setup_logging_middleware(self, app: FastAPI) -> None:
+        """Setup detailed request logging middleware."""
+        from fastapi import Request
+        from fastapi.responses import Response
+        import time
+        import json
+        
+        @app.middleware("http")
+        async def log_requests(request: Request, call_next):
+            start_time = time.time()
+            
+            # Log detalhado da requisição
+            logger.info(f" Request Started:")
+            logger.info(f"   Method: {request.method}")
+            logger.info(f"   URL: {request.url}")
+            logger.info(f"   Headers: {dict(request.headers)}")
+            logger.info(f"   Client: {request.client.host if request.client else 'unknown'}")
+            
+            response = await call_next(request)
+            
+            # Log detalhado da resposta
+            process_time = time.time() - start_time
+            logger.info(f" Request Completed:")
+            logger.info(f"   Status: {response.status_code}")
+            logger.info(f"   Duration: {process_time:.3f}s")
+            logger.info(f"   Content-Type: {response.headers.get('content-type', 'unknown')}")
+            
+            return response
     
     def _setup_static_files(self, app: FastAPI) -> None:
         """
@@ -147,7 +176,7 @@ class ApplicationFactory:
         """
         from app.api.routes import (
             admin, auth, conversations, health, 
-            uploads, uploads_v2, users, webhook, whatsapp_tools
+            templates, uploads, uploads_v2, users, webhook, whatsapp_tools
         )
         
         api_prefix = self.settings.api_v1_prefix
@@ -161,6 +190,7 @@ class ApplicationFactory:
         app.include_router(conversations.router, prefix=api_prefix, tags=["Conversations"])
         app.include_router(webhook.router, prefix=api_prefix, tags=["Webhooks"])
         app.include_router(webhook.public_router, tags=["Public Webhooks"])
+        app.include_router(templates.router, prefix=api_prefix, tags=["Templates"])
         
         # Admin functionality
         app.include_router(admin.router, prefix=api_prefix, tags=["Administration"])
@@ -177,6 +207,71 @@ class ApplicationFactory:
         def root() -> RedirectResponse:
             """Redirect root URL to frontend application."""
             return RedirectResponse(url="/inbox")
+    
+    def _initialize_system_templates(self, db: Session) -> None:
+        """
+        Initialize system templates if they don't exist.
+        
+        Creates default templates for LGPD and research that are
+        protected from deletion and marked as system templates.
+        """
+        try:
+            from app.models.template import MessageTemplate
+            
+            # Check if system templates already exist
+            existing_templates = db.query(MessageTemplate).filter(
+                MessageTemplate.is_system == True
+            ).all()
+            
+            if existing_templates:
+                logger.info(f"System templates already exist: {len(existing_templates)}")
+                for template in existing_templates:
+                    logger.info(f"  - {template.title} ({template.category})")
+                return
+            
+            logger.info("Creating system templates...")
+            
+            # Create LGPD template
+            lgpd_template = MessageTemplate(
+                title="Termo de Consentimento LGPD",
+                content="""*Termo de Consentimento para Tratamento de Dados Pessoais*
+
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail, CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento. Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses termos.
+
+Deseja continuar o atendimento?""",
+                category="LGPD",
+                is_system=True,
+                is_active=True
+            )
+            
+            # Create research template
+            research_template = MessageTemplate(
+                title="Pesquisa de Satisfação",
+                content="""Sua opinião é muito importante para nós. 
+Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber neste canal?
+
+1 estrela - Muito insatisfeito
+2 estrelas - Insatisfeito
+3 estrelas - Neutro
+4 estrelas - Satisfeito
+5 estrelas - Muito satisfeito""",
+                category="Pesquisa",
+                is_system=True,
+                is_active=True
+            )
+            
+            # Save templates
+            db.add_all([lgpd_template, research_template])
+            db.commit()
+            
+            logger.info("System templates created successfully:")
+            logger.info(f"  - {lgpd_template.title} ({lgpd_template.category})")
+            logger.info(f"  - {research_template.title} ({research_template.category})")
+            
+        except Exception as e:
+            logger.error(f"Error initializing system templates: {e}")
+            db.rollback()
+            raise
     
     @asynccontextmanager
     async def lifespan(self, app: FastAPI) -> AsyncGenerator[None, None]:
@@ -218,6 +313,9 @@ class ApplicationFactory:
                 
                 logger.info("⚙️ Setting up runtime configuration...")
                 get_or_create_runtime_settings(db)
+                
+                logger.info("Initializing system templates...")
+                self._initialize_system_templates(db)
                 
                 logger.info("🔗 Syncing webhook configurations...")
                 sync_webhook_urls_on_startup()
@@ -273,6 +371,39 @@ class ApplicationFactory:
         
         return app
 
+def create_app(self) -> FastAPI:
+    """
+    Create and configure the FastAPI application instance.
+    
+    Returns:
+        FastAPI: Configured application instance
+        
+    The application is configured with:
+    - Proper metadata for documentation
+    - CORS middleware
+    - Static file serving
+    - Route registration
+    - Exception handling
+    - Lifespan management
+    """
+    app = FastAPI(
+        title=self.settings.app_name,
+        description="UFPB Chat System - Professional multi-attendant chat platform",
+        version="2.0.0",
+        lifespan=self.lifespan,
+        docs_url="/api/v1/docs",
+        redoc_url="/api/v1/redoc",
+        openapi_url="/api/v1/openapi.json"
+    )
+    
+    # Configure application components
+    self._setup_cors(app)
+    self._setup_logging_middleware(app)
+    self._setup_static_files(app)
+    self._setup_routes(app)
+    setup_exception_handlers(app)
+    
+    return app
 
 def create_application() -> FastAPI:
     """

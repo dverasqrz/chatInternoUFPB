@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     rate_limit_burst_size: int = 10
     
     # External services
+    public_domain: str | None = None
     redis_url: str | None = None
     celery_broker_url: str | None = None
 

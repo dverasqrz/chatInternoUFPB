@@ -2,9 +2,12 @@ const apiPrefix = "/api/v1";
 
 const state = {
   token: localStorage.getItem("ufpb_token") || "",
-  user: JSON.parse(localStorage.getItem("ufpb_user") || "null"),
-  selectedConversationId: null,
+  user: null,
   conversations: [],
+  messagesByConversation: {},
+  messageOffsets: {},
+  hasMoreMessages: {},
+  selectedConversationId: null,
   messageSignaturesByConversation: {},
   pendingMessageRefresh: null,
   passwordForced: false,
@@ -12,12 +15,12 @@ const state = {
   recordKind: null,
   activeRecorder: null,
   activeStream: null,
+  publicConfig: null, // Configuração pública do backend
   discardRecordedMedia: false,
   messagePollTimer: null,
   conversationPollTimer: null,
   exportContext: null,
   // Infinite scroll state
-  messagesByConversation: {},
   messageOffsets: {},
   isLoadingMessages: false,
   hasMoreMessages: {},
@@ -27,6 +30,9 @@ const state = {
   analyser: null,
   microphone: null,
   animationId: null,
+  // Mensagens prontas (templates) - carregadas do backend
+  messageTemplates: [],
+  showTemplates: false,
 };
 
 const els = {
@@ -72,6 +78,10 @@ const els = {
   exportCurrentDayBtn: document.getElementById("exportCurrentDayBtn"),
   messageCountBadge: document.getElementById("messageCountBadge"),
   messages: document.getElementById("messages"),
+  // Elements do modal de templates
+  templatesOverlay: document.getElementById("templatesOverlay"),
+  templatesList: document.getElementById("templatesList"),
+  closeTemplatesBtn: document.getElementById("closeTemplatesBtn"),
   messageType: document.getElementById("messageType"),
   typeIconsContainer: document.getElementById("typeIconsContainer"),
   typeIcons: document.querySelectorAll(".btn-icon[data-type]"),
@@ -109,6 +119,13 @@ const els = {
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
   cleanupSystemBtn: document.getElementById("cleanupSystemBtn"),
   cleanupContactsBtn: document.getElementById("cleanupContactsBtn"),
+  openTemplatesManagerBtn: document.getElementById("openTemplatesManagerBtn"),
+  templatesSummary: document.getElementById("templatesSummary"),
+  emojiBtn: document.getElementById("emojiBtn"),
+  emojiOverlay: document.getElementById("emojiOverlay"),
+  closeEmojiBtn: document.getElementById("closeEmojiBtn"),
+  emojiSearch: document.getElementById("emojiSearch"),
+  emojiGrid: document.getElementById("emojiGrid"),
   appResizer: document.getElementById("appResizer"),
   leftPane: document.querySelector(".left-pane"),
   addContactBtn: document.getElementById("addContactBtn"),
@@ -224,18 +241,77 @@ async function apiRequest(path, options = {}) {
     headers.Authorization = `Bearer ${state.token}`;
   }
 
-  const response = await fetch(`${apiPrefix}${path}`, { ...options, headers });
+  // Usa URL completa se tiver domínio público configurado
+  const baseUrl = state.publicConfig?.public_domain || '';
+  // Remove barra final do baseUrl para evitar // duplo
+  const cleanBaseUrl = baseUrl ? baseUrl.replace(/\/$/, '') : '';
+  const fullUrl = cleanBaseUrl ? `${cleanBaseUrl}${apiPrefix}${path}` : `${apiPrefix}${path}`;
+
+  // Log detalhado para debugging
+  console.log('API Request:', {
+    path,
+    baseUrl,
+    cleanBaseUrl,
+    apiPrefix,
+    fullUrl,
+    method: options.method || 'GET',
+    hasToken: !!state.token
+  });
+
+  let response;
+  try {
+    console.log(`Fazendo requisição fetch para: ${fullUrl}`);
+    console.log('Headers da requisição:', headers);
+    console.log('Opções da requisição:', options);
+    
+    response = await fetch(fullUrl, { ...options, headers });
+    console.log(`Resposta recebida - Status: ${response.status}, OK: ${response.ok}`);
+  } catch (fetchError) {
+    console.error('=== ERRO DE FETCH (REDE) ===');
+    console.error('Erro completo:', fetchError);
+    console.error('Nome do erro:', fetchError.name);
+    console.error('Mensagem do erro:', fetchError.message);
+    console.error('URL tentada:', fullUrl);
+    console.error('Método:', options.method || 'GET');
+    console.error('Headers enviados:', headers);
+    
+    // Erros de rede específicos
+    let errorMessage = "Erro de conexão com o servidor.";
+    
+    if (fetchError.name === 'TypeError' && fetchError.message.includes('Failed to fetch')) {
+      errorMessage = "Não foi possível conectar ao servidor. Verifique sua conexão com a internet e se o backend está online.";
+    } else if (fetchError.name === 'AbortError') {
+      errorMessage = "A requisição foi cancelada. Tente novamente.";
+    } else if (fetchError.message.includes('NetworkError')) {
+      errorMessage = "Erro de rede. Verifique sua conexão com a internet.";
+    } else if (fetchError.message.includes('CORS')) {
+      errorMessage = "Erro de CORS. O servidor não permite requisições desta origem.";
+    }
+    
+    const networkError = new Error(errorMessage);
+    networkError.status = 0; // Indica erro de rede
+    networkError.originalError = fetchError;
+    networkError.url = fullUrl;
+    throw networkError;
+  }
+  
   const text = await response.text();
+  console.log(`Resposta text recebida (${text.length} caracteres):`, text.substring(0, 200) + (text.length > 200 ? '...' : ''));
+  
   let data = {};
   if (text) {
     try {
       data = JSON.parse(text);
-    } catch {
+      console.log('Resposta JSON parseada com sucesso:', data);
+    } catch (parseError) {
+      console.error('Erro ao fazer parse do JSON:', parseError);
+      console.log('Texto bruto que falhou no parse:', text);
       data = {};
     }
   }
 
   if (response.status === 401) {
+    console.log('Detectado status 401 - Fazendo logout');
     await logout(false);
     const errorMsg = data.error?.message || data.detail || "Sessão expirada. Faça login novamente.";
     const authError = new Error(errorMsg);
@@ -244,20 +320,32 @@ async function apiRequest(path, options = {}) {
   }
 
   if (!response.ok) {
-    const errorMsg = data.error?.message || data.detail || `Erro da API: ${response.status}`;
+    console.error('=== ERRO DE RESPOSTA DA API ===');
+    console.error('Status:', response.status);
+    console.error('Status Text:', response.statusText);
+    console.error('Headers da resposta:', Object.fromEntries(response.headers.entries()));
+    console.error('Dados parseados:', data);
+    console.error('Texto bruto:', text);
+    
+    const errorMsg = data.error?.message || data.detail || data.message || `Erro da API: ${response.status} ${response.statusText}`;
     const requestError = new Error(errorMsg);
     requestError.status = response.status;
     requestError.responseData = data;
     requestError.responseText = text;
+    requestError.statusText = response.statusText;
+    
     console.error('API Error Details:', {
       status: response.status,
-      url: `${apiPrefix}${path}`,
+      statusText: response.statusText,
+      url: fullUrl,
       data: data,
       text: text,
       headers: headers
     });
     throw requestError;
   }
+  
+  console.log(`Requisição bem sucedida para ${fullUrl}`);
   return data;
 }
 
@@ -363,6 +451,765 @@ function resetComposer() {
   setComposerVisibility();
 }
 
+// ===== Sistema de Mensagens Prontas (Templates) =====
+function showTemplates() {
+  renderTemplates();
+  els.templatesOverlay.classList.remove("hidden");
+  state.showTemplates = true;
+}
+
+function hideTemplates() {
+  els.templatesOverlay.classList.add("hidden");
+  state.showTemplates = false;
+}
+
+function renderTemplates() {
+  console.log("=== RENDERIZANDO TEMPLATES ===");
+  console.log("Número de templates disponíveis:", state.messageTemplates.length);
+  console.log("Usuário é admin:", state.user?.is_admin);
+  
+  const isAdmin = state.user?.is_admin;
+  
+  // Verificar se há templates
+  if (!state.messageTemplates || state.messageTemplates.length === 0) {
+    console.warn("Nenhum template disponível para renderizar");
+    
+    if (els.templatesList) {
+      els.templatesList.innerHTML = `
+        <div class="template-empty-state">
+          <p>Nenhum template disponível no momento.</p>
+          ${isAdmin ? `
+            <p>Como administrador, você pode criar novos templates usando o botão abaixo.</p>
+          ` : `
+            <p>Entre em contato com o administrador para adicionar templates.</p>
+          `}
+        </div>
+      `;
+    }
+    
+    // Adicionar botão de novo template para admins mesmo sem templates
+    if (isAdmin && els.templatesList) {
+      const addTemplateBtn = document.createElement("button");
+      addTemplateBtn.className = "btn btn-primary add-template-btn";
+      addTemplateBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Criar Primeiro Template
+      `;
+      addTemplateBtn.addEventListener("click", () => showTemplateEditor());
+      els.templatesList.appendChild(addTemplateBtn);
+    }
+    
+    return;
+  }
+  
+  console.log("Renderizando templates:", state.messageTemplates.map(t => t.title));
+  
+  try {
+    const templatesHtml = state.messageTemplates.map(template => {
+      console.log(`Renderizando template: ${template.title} (ID: ${template.id})`);
+      
+      return `
+        <div class="template-item" data-template-id="${template.id}">
+          <div class="template-header">
+            <h3 class="template-title">${escapeHtml(template.title)}</h3>
+            <div class="template-meta">
+              <span class="template-category">${escapeHtml(template.category)}</span>
+              ${template.is_system ? '<span class="template-system-badge">Sistema</span>' : ''}
+            </div>
+          </div>
+          <p class="template-content">${escapeHtml(template.content)}</p>
+          ${isAdmin ? `
+            <div class="template-actions">
+              <button class="btn-small btn-outline edit-template-btn" data-template-id="${template.id}" title="Editar">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+              </button>
+              ${!template.is_system ? `
+                <button class="btn-small btn-danger delete-template-btn" data-template-id="${template.id}" title="Excluir">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3,6 5,6 21,6"></polyline>
+                    <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                    <line x1="10" y1="11" x2="10" y2="17"></line>
+                    <line x1="14" y1="11" x2="14" y2="17"></line>
+                  </svg>
+                </button>
+              ` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join("");
+
+    if (els.templatesList) {
+      els.templatesList.innerHTML = templatesHtml;
+      console.log("Templates renderizados no DOM com sucesso");
+    } else {
+      console.error("Elemento templatesList não encontrado!");
+      return;
+    }
+
+    // Adicionar eventos de clique aos templates (para selecionar)
+    const templateItems = els.templatesList.querySelectorAll(".template-item");
+    console.log(`Adicionando eventos de clique a ${templateItems.length} templates`);
+    
+    templateItems.forEach(item => {
+      item.addEventListener("click", (e) => {
+        // Não selecionar se clicou nos botões de ação
+        if (e.target.closest('.template-actions')) return;
+        console.log("Template selecionado:", item.dataset.templateId);
+        selectTemplate(item);
+      });
+    });
+    
+    // Adicionar eventos de administração (apenas para admins)
+    if (isAdmin) {
+      console.log("Configurando eventos de administração");
+      
+      // Botões de editar
+      const editBtns = els.templatesList.querySelectorAll(".edit-template-btn");
+      editBtns.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const templateId = parseInt(btn.dataset.templateId);
+          const template = state.messageTemplates.find(t => t.id === templateId);
+          if (template) {
+            console.log("Abrindo editor para template:", template.title);
+            showTemplateEditor(template);
+          }
+        });
+      });
+      
+      // Botões de excluir
+      const deleteBtns = els.templatesList.querySelectorAll(".delete-template-btn");
+      deleteBtns.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const templateId = parseInt(btn.dataset.templateId);
+          const template = state.messageTemplates.find(t => t.id === templateId);
+          if (template && confirm(`Tem certeza que deseja excluir o template "${template.title}"?`)) {
+            console.log("Excluindo template:", template.title);
+            deleteTemplate(templateId);
+          }
+        });
+      });
+    }
+    
+    // Adicionar botão de novo template (apenas para admins)
+    if (isAdmin) {
+      const addTemplateBtn = document.createElement("button");
+      addTemplateBtn.className = "btn btn-primary add-template-btn";
+      addTemplateBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+        Novo Template
+      `;
+      addTemplateBtn.addEventListener("click", () => {
+        console.log("Abrindo editor para novo template");
+        showTemplateEditor();
+      });
+      
+      // Inserir antes da lista de templates
+      els.templatesList.parentElement.insertBefore(addTemplateBtn, els.templatesList);
+    }
+    
+    console.log("Renderização de templates concluída com sucesso");
+    
+  } catch (error) {
+    console.error("ERRO AO RENDERIZAR TEMPLATES:", error);
+    if (els.templatesList) {
+      els.templatesList.innerHTML = `
+        <div class="template-error-state">
+          <p>Erro ao renderizar templates.</p>
+          <p>Tente recarregar a página.</p>
+        </div>
+      `;
+    }
+  }
+  
+  console.log("=== FIM DA RENDERIZAÇÃO DE TEMPLATES ===");
+}
+
+function selectTemplate(templateElement) {
+  const templateId = parseInt(templateElement.dataset.templateId);
+  const template = state.messageTemplates.find(t => t.id === templateId);
+  
+  if (template) {
+    // Remove seleção anterior
+    els.templatesList.querySelectorAll(".template-item").forEach(item => {
+      item.classList.remove("selected");
+    });
+    
+    // Adiciona seleção ao item clicado
+    templateElement.classList.add("selected");
+    
+    // Insere o conteúdo no campo de mensagem
+    els.textContent.value = template.content;
+    
+    // Fecha o modal após breve delay para mostrar feedback visual
+    setTimeout(() => {
+      hideTemplates();
+      els.textContent.focus();
+    }, 300);
+    
+    console.log(`Template selecionado: ${template.title}`);
+  }
+}
+
+function handleTextContentInput(event) {
+  const value = event.target.value;
+  
+  // Verifica se o usuário digitou "/" para mostrar templates
+  if (value === "/" && !state.showTemplates) {
+    event.preventDefault();
+    showTemplates();
+    return;
+  }
+  
+  // Se estiver mostrando templates e o usuário continuar digitando, esconde
+  if (state.showTemplates && value !== "/") {
+    hideTemplates();
+  }
+}
+
+// ===== Funções de Verificação de Conexão =====
+async function checkBackendConnection() {
+  console.log("=== VERIFICANDO CONEXÃO COM BACKEND ===");
+  
+  try {
+    // Tentar uma requisição simples para verificar conexão
+    const response = await apiRequest("/auth/me");
+    console.log("Conexão com backend OK - usuário autenticado");
+    return true;
+  } catch (error) {
+    console.error("Erro na verificação de conexão:", error);
+    
+    if (error.status === 0) {
+      // Erro de rede
+      console.error("Backend não está acessível - erro de rede");
+      return false;
+    } else if (error.status === 401) {
+      // Erro de autenticação
+      console.error("Usuário não autenticado");
+      return false;
+    } else {
+      // Outro erro
+      console.error("Erro inesperado na verificação de conexão:", error);
+      return false;
+    }
+  }
+}
+
+// ===== Funções de Templates (Backend) =====
+async function loadTemplates() {
+  console.log("=== INICIANDO CARREGAMENTO DE TEMPLATES ===");
+  console.log("Token disponível:", !!state.token);
+  console.log("Usuário logado:", !!state.user);
+  console.log("Usuário é admin:", state.user?.is_admin);
+  console.log("Configuração pública:", state.publicConfig);
+  
+  // Verificar conexão primeiro
+  const isBackendConnected = await checkBackendConnection();
+  if (!isBackendConnected) {
+    console.warn("Backend não está conectado, usando templates de fallback");
+    
+    // Usar templates de fallback sem mostrar erro de rede
+    state.messageTemplates = [
+      {
+        id: 1,
+        title: "Termo de Consentimento LGPD",
+        content: `*Termo de Consentimento para Tratamento de Dados Pessoais*
+
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail, CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento. Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses termos.
+
+Deseja continuar o atendimento?`,
+        category: "LGPD",
+        is_system: true
+      },
+      {
+        id: 2,
+        title: "Pesquisa de Satisfação",
+        content: `Sua opinião é muito importante para nós. 
+Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber neste canal?
+
+1 estrela - Muito insatisfeito
+2 estrelas - Insatisfeito
+3 estrelas - Neutro
+4 estrelas - Satisfeito
+5 estrelas - Muito satisfeito`,
+        category: "Pesquisa",
+        is_system: true
+      }
+    ];
+    
+    console.log(`Usando ${state.messageTemplates.length} templates de fallback (offline)`);
+    showToast("Usando templates offline. Verifique sua conexão com o servidor.", "warning");
+    return;
+  }
+  
+  try {
+    console.log("Fazendo requisição para /templates/...");
+    const response = await apiRequest("/templates/");
+    
+    console.log("Resposta recebida:", response);
+    console.log("Tipo da resposta:", typeof response);
+    console.log("Chaves da resposta:", Object.keys(response || {}));
+    
+    if (response && response.templates) {
+      state.messageTemplates = response.templates;
+      console.log(`Templates carregados com sucesso: ${state.messageTemplates.length}`);
+      console.log("Detalhes dos templates:", state.messageTemplates.map(t => ({
+        id: t.id,
+        title: t.title,
+        category: t.category,
+        is_system: t.is_system
+      })));
+      
+      // Mostrar toast de sucesso apenas se não for carregamento inicial silencioso
+      if (state.messageTemplates.length > 0) {
+        console.log("Templates disponíveis para uso:");
+      } else {
+        console.warn("Nenhum template encontrado!");
+        showToast("Nenhum template encontrado. Entre em contato com o administrador.", "warning");
+      }
+    } else {
+      console.error("Resposta inválida da API:", response);
+      showToast("Resposta inválida do servidor ao carregar templates", "error");
+      
+      // Usar fallback mesmo com resposta inválida
+      state.messageTemplates = [
+        // Templates LGPD e Pesquisa
+      ];
+    }
+    
+  } catch (error) {
+    console.error("=== ERRO DETALHADO AO CARREGAR TEMPLATES ===");
+    console.error("Erro completo:", error);
+    console.error("Status do erro:", error.status);
+    console.error("Mensagem do erro:", error.message);
+    console.error("Stack trace:", error.stack);
+    
+    // Tentativa de fallback com templates locais
+    console.log("Tentando usar templates de fallback...");
+    state.messageTemplates = [
+      {
+        id: 1,
+        title: "Termo de Consentimento LGPD",
+        content: `*Termo de Consentimento para Tratamento de Dados Pessoais*
+
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail, CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento. Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses termos.
+
+Deseja continuar o atendimento?`,
+        category: "LGPD",
+        is_system: true
+      },
+      {
+        id: 2,
+        title: "Pesquisa de Satisfação",
+        content: `Sua opinião é muito importante para nós. 
+Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber neste canal?
+
+1 estrela - Muito insatisfeito
+2 estrelas - Insatisfeito
+3 estrelas - Neutro
+4 estrelas - Satisfeito
+5 estrelas - Muito satisfeito`,
+        category: "Pesquisa",
+        is_system: true
+      }
+    ];
+    
+    console.log(`Usando ${state.messageTemplates.length} templates de fallback`);
+    
+    // Mostrar mensagem mais informativa
+    const errorMessage = error.status === 401 
+      ? "Erro de autenticação ao carregar templates. Faça login novamente."
+      : error.status === 403
+      ? "Você não tem permissão para acessar templates."
+      : error.status === 404
+      ? "Endpoint de templates não encontrado. Verifique se o backend está atualizado."
+      : error.status === 0
+      ? "Erro de conexão com o servidor. Usando templates offline."
+      : `Erro ao carregar templates: ${error.message || 'Erro desconhecido'}`;
+    
+    console.error("Mensagem para usuário:", errorMessage);
+    showToast(errorMessage, error.status === 0 ? "warning" : "error");
+  }
+  
+  console.log("=== FIM DO CARREGAMENTO DE TEMPLATES ===");
+  console.log("Estado final dos templates:", state.messageTemplates.length);
+  
+  // Atualizar resumo administrativo
+  updateTemplatesSummary();
+}
+
+// ===== Funções de Administração de Templates (Apenas Admin) =====
+async function createTemplate(templateData) {
+  try {
+    const response = await apiRequest("/templates/", {
+      method: "POST",
+      body: JSON.stringify(templateData)
+    });
+    
+    showToast("Template criado com sucesso", "success");
+    await loadTemplates(); // Recarregar lista
+    return response;
+  } catch (error) {
+    console.error("Erro ao criar template:", error);
+    showToast(error.message || "Erro ao criar template", "error");
+    throw error;
+  }
+}
+
+async function updateTemplate(templateId, templateData) {
+  try {
+    const response = await apiRequest(`/templates/${templateId}/`, {
+      method: "PUT",
+      body: JSON.stringify(templateData)
+    });
+    
+    showToast("Template atualizado com sucesso", "success");
+    await loadTemplates(); // Recarregar lista
+    return response;
+  } catch (error) {
+    console.error("Erro ao atualizar template:", error);
+    showToast(error.message || "Erro ao atualizar template", "error");
+    throw error;
+  }
+}
+
+async function deleteTemplate(templateId) {
+  try {
+    await apiRequest(`/templates/${templateId}/`, {
+      method: "DELETE"
+    });
+    
+    showToast("Template excluído com sucesso", "success");
+    await loadTemplates(); // Recarregar lista
+  } catch (error) {
+    console.error("Erro ao excluir template:", error);
+    showToast(error.message || "Erro ao excluir template", "error");
+    throw error;
+  }
+}
+
+// ===== Interface de Edição de Templates =====
+function showTemplateEditor(template = null) {
+  const isEdit = !!template;
+  const title = isEdit ? "Editar Template" : "Novo Template";
+  
+  // Criar modal de edição
+  const modalHtml = `
+    <div id="templateEditorOverlay" class="overlay">
+      <div class="modal template-editor-modal">
+        <div class="modal-header">
+          <h2>${title}</h2>
+          <button id="closeTemplateEditorBtn" class="btn-icon" title="Fechar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="templateEditorForm">
+            <div class="form-group">
+              <label for="templateTitle">Título</label>
+              <input type="text" id="templateTitle" required maxlength="200" 
+                     value="${template ? template.title : ''}" placeholder="Título do template">
+            </div>
+            <div class="form-group">
+              <label for="templateCategory">Categoria</label>
+              <input type="text" id="templateCategory" required maxlength="50" 
+                     value="${template ? template.category : ''}" placeholder="Categoria (ex: LGPD, Pesquisa)">
+            </div>
+            <div class="form-group">
+              <label for="templateContent">Conteúdo</label>
+              <textarea id="templateContent" required rows="8" 
+                        placeholder="Conteúdo do template (use * para negrito)">${template ? template.content : ''}</textarea>
+            </div>
+            ${isEdit && template.is_system ? `
+              <div class="warning-message">
+                <strong>Atenção:</strong> Este é um template do sistema e não pode ser completamente excluído.
+              </div>
+            ` : ''}
+            <div class="form-actions">
+              <button type="button" id="cancelTemplateEditorBtn" class="btn btn-outline">Cancelar</button>
+              <button type="submit" class="btn">${isEdit ? 'Atualizar' : 'Criar'}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Adicionar modal ao body
+  document.body.insertAdjacentHTML('beforeend', modalHtml);
+  
+  // Configurar eventos
+  const overlay = document.getElementById("templateEditorOverlay");
+  const form = document.getElementById("templateEditorForm");
+  const closeBtn = document.getElementById("closeTemplateEditorBtn");
+  const cancelBtn = document.getElementById("cancelTemplateEditorBtn");
+  
+  // Evento de submit
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    
+    const formData = {
+      title: document.getElementById("templateTitle").value.trim(),
+      category: document.getElementById("templateCategory").value.trim(),
+      content: document.getElementById("templateContent").value.trim()
+    };
+    
+    try {
+      if (isEdit) {
+        await updateTemplate(template.id, formData);
+      } else {
+        await createTemplate(formData);
+      }
+      closeTemplateEditor();
+    } catch (error) {
+      // Erro já tratado nas funções
+    }
+  });
+  
+  // Eventos de fechar
+  const closeTemplateEditor = () => {
+    overlay.remove();
+  };
+  
+  closeBtn.addEventListener("click", closeTemplateEditor);
+  cancelBtn.addEventListener("click", closeTemplateEditor);
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeTemplateEditor();
+  });
+}
+
+function closeTemplateEditor() {
+  const overlay = document.getElementById("templateEditorOverlay");
+  if (overlay) overlay.remove();
+}
+
+// ===== Funções Administrativas de Templates =====
+function updateTemplatesSummary() {
+  if (!els.templatesSummary) return;
+  
+  const templates = state.messageTemplates || [];
+  const systemTemplates = templates.filter(t => t.is_system);
+  const customTemplates = templates.filter(t => !t.is_system);
+  const categories = [...new Set(templates.map(t => t.category))];
+  
+  const summaryHtml = `
+    <p>
+      <span class="templates-count">${templates.length}</span> templates no total
+      (${systemTemplates.length} do sistema, ${customTemplates.length} personalizados)
+    </p>
+    ${categories.length > 0 ? `
+      <div class="templates-list">
+        ${categories.map(category => {
+          const count = templates.filter(t => t.category === category).length;
+          const isSystemCategory = systemTemplates.some(t => t.category === category);
+          return `<span class="template-badge ${isSystemCategory ? 'system' : ''}">${category} (${count})</span>`;
+        }).join('')}
+      </div>
+    ` : ''}
+  `;
+  
+  els.templatesSummary.innerHTML = summaryHtml;
+}
+
+function openTemplatesManager() {
+  console.log("Abrindo gerenciador de templates administrativos");
+  // Abrir o modal de templates com foco em administração
+  showTemplates();
+  
+  // Adicionar aviso informativo para admins
+  if (state.messageTemplates.length === 0) {
+    showToast("Nenhum template encontrado. Use o botão 'Novo Template' para criar o primeiro.", "info");
+  }
+}
+
+// ===== Funções de Emojis =====
+const emojiData = {
+  smileys: ['grinning', 'smiley', 'smile', 'grin', 'laughing', 'satisfied', 'wink', 'blush', 'heart_eyes', 'kissing_heart'],
+  people: ['thumbsup', 'thumbsdown', 'clap', 'wave', 'ok_hand', 'pray', 'handshake', 'raised_hands', 'open_hands', 'muscle'],
+  animals: ['dog', 'cat', 'mouse', 'hamster', 'rabbit', 'fox', 'bear', 'panda', 'koala', 'tiger'],
+  food: ['pizza', 'hamburger', 'fries', 'hotdog', 'taco', 'burrito', 'ramen', 'spaghetti', 'ice_cream', 'donut'],
+  activities: ['soccer', 'basketball', 'football', 'tennis', 'volleyball', 'baseball', 'golf', 'swimming', 'running', 'biking'],
+  objects: ['phone', 'computer', 'keyboard', 'mouse', 'monitor', 'printer', 'camera', 'tv', 'radio', 'clock'],
+  symbols: ['heart', 'broken_heart', 'sparkling_heart', 'two_hearts', 'revolving_hearts', 'heartpulse', 'heartbeat', 'arrow_forward', 'arrow_backward', 'star']
+};
+
+function initializeEmojis() {
+  console.log("Inicializando seletor de emojis");
+  loadEmojis('all');
+}
+
+function loadEmojis(category) {
+  const grid = els.emojiGrid;
+  if (!grid) return;
+  
+  grid.innerHTML = '';
+  
+  let emojis = [];
+  if (category === 'all') {
+    emojis = Object.values(emojiData).flat();
+  } else {
+    emojis = emojiData[category] || [];
+  }
+  
+  // Adicionar emojis comuns
+  const commonEmojis = ['thumbsup', 'thumbsdown', 'clap', 'heart', 'star', 'ok_hand', 'pray', 'wave', 'smile', 'laughing'];
+  emojis = [...new Set([...commonEmojis, ...emojis])];
+  
+  emojis.forEach(emoji => {
+    const emojiItem = document.createElement('div');
+    emojiItem.className = 'emoji-item';
+    emojiItem.textContent = getEmojiByShortcode(emoji);
+    emojiItem.dataset.emoji = getEmojiByShortcode(emoji);
+    emojiItem.dataset.shortcode = emoji;
+    emojiItem.title = emoji;
+    emojiItem.addEventListener('click', () => selectEmoji(emojiItem.dataset.emoji));
+    grid.appendChild(emojiItem);
+  });
+}
+
+function getEmojiByShortcode(shortcode) {
+  // Mapeamento de shortcodes para emojis Unicode reais
+  const unicodeEmojis = {
+    'grinning': '😀',
+    'smiley': '😃',
+    'smile': '😄',
+    'grin': '😁',
+    'laughing': '😆',
+    'satisfied': '😌',
+    'wink': '😉',
+    'blush': '😊',
+    'heart_eyes': '😍',
+    'kissing_heart': '😘',
+    'thumbsup': '👍',
+    'thumbsdown': '👎',
+    'clap': '👏',
+    'wave': '👋',
+    'ok_hand': '👌',
+    'pray': '🙏',
+    'handshake': '🤝',
+    'raised_hands': '🙌',
+    'open_hands': '👐',
+    'muscle': '💪',
+    'dog': '🐶',
+    'cat': '🐱',
+    'mouse': '🐭',
+    'hamster': '🐹',
+    'rabbit': '🐰',
+    'fox': '🦊',
+    'bear': '🐻',
+    'panda': '🐼',
+    'koala': '🐨',
+    'tiger': '🐯',
+    'pizza': '🍕',
+    'hamburger': '🍔',
+    'fries': '🍟',
+    'hotdog': '🌭',
+    'taco': '🌮',
+    'burrito': '🌯',
+    'ramen': '🍜',
+    'spaghetti': '🍝',
+    'ice_cream': '🍦',
+    'donut': '🍩',
+    'soccer': '⚽',
+    'basketball': '🏀',
+    'football': '🏈',
+    'tennis': '🎾',
+    'volleyball': '🏐',
+    'baseball': '⚾',
+    'golf': '⛳',
+    'swimming': '🏊',
+    'running': '🏃',
+    'biking': '🚴',
+    'phone': '📱',
+    'computer': '💻',
+    'keyboard': '⌨️',
+    'mouse': '🖱️',
+    'monitor': '🖥️',
+    'printer': '🖨️',
+    'camera': '📷',
+    'tv': '📺',
+    'radio': '📻',
+    'clock': '🕰️',
+    'heart': '❤️',
+    'broken_heart': '💔',
+    'sparkling_heart': '💖',
+    'two_hearts': '💕',
+    'revolving_hearts': '💞',
+    'heartpulse': '💗',
+    'heartbeat': '💓',
+    'arrow_forward': '▶️',
+    'arrow_backward': '◀️',
+    'star': '⭐'
+  };
+  
+  // Retornar emojis Unicode reais
+  return unicodeEmojis[shortcode] || shortcode;
+}
+
+function selectEmoji(emoji) {
+  console.log("Emoji selecionado:", emoji);
+  
+  // Inserir emoji no campo de texto
+  const textContent = els.textContent;
+  if (textContent) {
+    const cursorPosition = textContent.selectionStart || textContent.value.length;
+    const textBefore = textContent.value.substring(0, cursorPosition);
+    const textAfter = textContent.value.substring(cursorPosition);
+    textContent.value = textBefore + emoji + textAfter;
+    
+    // Mover cursor para depois do emoji
+    const newCursorPosition = cursorPosition + emoji.length;
+    textContent.setSelectionRange(newCursorPosition, newCursorPosition);
+    
+    // Focar no campo de texto
+    textContent.focus();
+  }
+  
+  // Fechar modal
+  closeEmojiModal();
+}
+
+function showEmojiModal() {
+  console.log("Abrindo modal de emojis");
+  
+  if (!els.emojiOverlay) return;
+  
+  els.emojiOverlay.classList.remove("hidden");
+  initializeEmojis();
+  
+  // Focar no campo de busca
+  if (els.emojiSearch) {
+    els.emojiSearch.focus();
+  }
+}
+
+function closeEmojiModal() {
+  console.log("Fechando modal de emojis");
+  
+  if (els.emojiOverlay) {
+    els.emojiOverlay.classList.add("hidden");
+  }
+  
+  // Limpar busca
+  if (els.emojiSearch) {
+    els.emojiSearch.value = '';
+  }
+}
+
 function clearPolls() {
   if (state.messagePollTimer) {
     clearInterval(state.messagePollTimer);
@@ -374,6 +1221,22 @@ function clearPolls() {
   }
 }
 
+async function loadPublicConfig() {
+  try {
+    const response = await apiRequest("/auth/config");
+    state.publicConfig = response;
+    console.log('Configuração pública carregada:', response);
+  } catch (error) {
+    console.error('Erro ao carregar configuração pública:', error);
+    state.publicConfig = {
+      public_domain: window.location.origin,
+      api_prefix: "/api/v1",
+      environment: "development",
+      debug: true
+    };
+  }
+}
+
 async function fetchLoginChallenge(autoGenerate = false) {
   try {
     console.log('Buscando nova charada... autoGenerate:', autoGenerate);
@@ -382,33 +1245,27 @@ async function fetchLoginChallenge(autoGenerate = false) {
       method: "GET",
       cache: "no-store",
       headers: {
-        "Cache-Control": "no-cache",
-        Pragma: "no-cache",
-      },
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
     });
     
-    console.log('Challenge response status:', response.status);
+    const data = await response.json();
     
-    if (!response.ok) {
-      throw new Error(`Falha ao obter charada (${response.status}).`);
-    }
-    
-    const challenge = await response.json();
-    console.log('Challenge recebida:', challenge);
-    
-    if (!challenge.challenge_id || !challenge.question) {
+    if (!data.challenge_id || !data.question) {
       throw new Error("Resposta da charada inválida.");
     }
     
-    state.loginChallengeId = challenge.challenge_id;
-    els.challengeQuestion.textContent = `${challenge.question} (expira em ${challenge.expires_in_seconds}s)`;
+    state.loginChallengeId = data.challenge_id;
+    els.challengeQuestion.textContent = `${data.question} (expira em ${data.expires_in_seconds}s)`;
     els.challengeAnswer.value = "";
     els.loginError.textContent = "";
     
     console.log('Charada carregada com sucesso:', {
-      id: challenge.challenge_id,
-      question: challenge.question,
-      expires_in: challenge.expires_in_seconds
+      id: data.challenge_id,
+      question: data.question,
+      expires_in: data.expires_in_seconds
     });
     
   } catch (error) {
@@ -1547,6 +2404,13 @@ async function logout(callApi = true) {
 
 async function initializeInbox() {
   clearPolls();
+  
+  // Carrega configuração pública do backend
+  await loadPublicConfig();
+  
+  // Carregar templates do backend
+  await loadTemplates();
+  
   if (state.user?.is_admin) {
     await loadAdminUsers();
   }
@@ -1774,6 +2638,17 @@ function bindEvents() {
   els.logoutBtn.addEventListener("click", async () => {
     await logout(true);
   });
+  
+  // Eventos do sistema de templates
+  els.textContent.addEventListener("input", handleTextContentInput);
+  els.closeTemplatesBtn.addEventListener("click", hideTemplates);
+  
+  // Fecha modal de templates ao clicar fora
+  els.templatesOverlay.addEventListener("click", (event) => {
+    if (event.target === els.templatesOverlay) {
+      hideTemplates();
+    }
+  });
   if (els.typeIcons) {
     els.typeIcons.forEach((icon) => {
       icon.addEventListener("click", () => {
@@ -1808,6 +2683,45 @@ function bindEvents() {
   els.searchGlobalInput.addEventListener("keypress", (e) => {
     if (e.key === "Enter") performGlobalSearch();
   });
+  // Eventos do seletor de emojis
+  if (els.emojiBtn) {
+    els.emojiBtn.addEventListener("click", showEmojiModal);
+  }
+  if (els.closeEmojiBtn) {
+    els.closeEmojiBtn.addEventListener("click", closeEmojiModal);
+  }
+  if (els.emojiOverlay) {
+    els.emojiOverlay.addEventListener("click", (e) => {
+      if (e.target === els.emojiOverlay) {
+        closeEmojiModal();
+      }
+    });
+  }
+  if (els.emojiSearch) {
+    els.emojiSearch.addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase();
+      const items = els.emojiGrid.querySelectorAll(".emoji-item");
+      items.forEach((item) => {
+        const shortcode = item.dataset.shortcode || "";
+        if (shortcode.includes(q)) {
+          item.style.display = "";
+        } else {
+          item.style.display = "none";
+        }
+      });
+    });
+  }
+  const categoryBtns = document.querySelectorAll(".emoji-category-btn");
+  if (categoryBtns.length > 0) {
+    categoryBtns.forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        categoryBtns.forEach((b) => b.classList.remove("active"));
+        e.target.classList.add("active");
+        loadEmojis(e.target.dataset.category);
+      });
+    });
+  }
+
   els.exportCurrentDayBtn.addEventListener("click", () => exportCurrentDay());
   els.uploadImageBtn.addEventListener("click", () => els.imageFileInput.click());
   els.imageFileInput.addEventListener("change", async () => {
@@ -1869,6 +2783,9 @@ function bindEvents() {
       console.error('Erro na limpeza de contatos:', error);
       showErrorToast("Erro na limpeza de contatos: " + (error.message || "Erro desconhecido"));
     }
+  });
+  els.openTemplatesManagerBtn.addEventListener("click", () => {
+    openTemplatesManager();
   });
   els.adminUsersTableBody.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-action]");

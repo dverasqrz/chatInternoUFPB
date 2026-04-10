@@ -58,8 +58,28 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse
 
 
 @router.get("/me", response_model=UserRead)
-def me(current_user: User = Depends(get_current_user)) -> UserRead:
+def get_current_user_info(
+    current_user: User = Depends(get_current_user),
+) -> UserRead:
+    """Get current authenticated user information."""
     return UserRead.model_validate(current_user)
+
+
+@router.get("/config", response_model=dict)
+def get_public_config(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Get public configuration for frontend (domain, etc.)."""
+    from app.core.config import get_settings
+    
+    settings = get_settings()
+    
+    return {
+        "public_domain": settings.public_domain,
+        "api_prefix": settings.api_v1_prefix,
+        "environment": settings.environment,
+        "debug": settings.debug,
+    }
 
 
 @router.post("/change-password", response_model=UserRead)

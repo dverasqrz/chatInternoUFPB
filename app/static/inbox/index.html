@@ -71,10 +71,21 @@
             <button id="createUserBtn" class="btn btn-small">Adicionar usuário</button>
           </div>
           
+          <div class="admin-templates-section">
+            <h4>Gerenciamento de Templates</h4>
+            <div class="templates-header">
+              <p>Gerencie as mensagens prontas usadas pelos atendentes.</p>
+              <button id="openTemplatesManagerBtn" class="btn btn-small">Gerenciar Templates</button>
+            </div>
+            <div class="templates-summary" id="templatesSummary">
+              <p>Carregando...</p>
+            </div>
+          </div>
+          
           <div class="admin-cleanup-form" style="display: flex; flex-direction: column; gap: 8px;">
             <h4>Limpeza do Sistema</h4>
-            <button id="cleanupSystemBtn" class="btn btn-danger btn-small">🗑️ Apagar Mensagens e Uploads</button>
-            <button id="cleanupContactsBtn" class="btn btn-danger btn-small">🗑️ Apagar Todos os Contatos</button>
+            <button id="cleanupSystemBtn" class="btn btn-small">Apagar Mensagens e Uploads</button>
+            <button id="cleanupContactsBtn" class="btn btn-small">Apagar Todos os Contatos</button>
           </div>
         </div>
       </section>
@@ -144,6 +155,9 @@
             <button type="button" class="btn-icon" data-type="document" title="Enviar Documento">
               <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </button>
+            <button type="button" class="btn-icon" id="emojiBtn" title="Emogis">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+            </button>
           </div>
           <div class="composer-actions">
             <button id="sendMessageBtn" class="btn">Enviar</button>
@@ -151,6 +165,27 @@
         </div>
       </section>
     </main>
+
+    <!-- Modal de Mensagens Prontas -->
+    <div id="templatesOverlay" class="overlay hidden">
+      <div class="modal templates-modal">
+        <div class="modal-header">
+          <h2>Mensagens Prontas</h2>
+          <button id="closeTemplatesBtn" class="btn-icon" title="Fechar">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="templates-list" id="templatesList">
+            <!-- Templates serão inseridos aqui dinamicamente -->
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div id="loginOverlay" class="overlay">
@@ -291,6 +326,31 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+
+  <!-- Modal de Seleção de Emojis -->
+  <div id="emojiOverlay" class="overlay hidden">
+    <div class="modal emoji-modal">
+      <div class="modal-header">
+        <h3 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #4e6c62; text-transform: uppercase; letter-spacing: 0.5px;">Escolher Emoji</h3>
+        <button class="close-btn" id="closeEmojiBtn" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #4e6c62;">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="emoji-categories">
+          <button class="emoji-category-btn active" data-category="all">Todos</button>
+          <button class="emoji-category-btn" data-category="smileys">Sorrisos</button>
+          <button class="emoji-category-btn" data-category="people">Pessoas</button>
+          <button class="emoji-category-btn" data-category="animals">Animais</button>
+          <button class="emoji-category-btn" data-category="food">Comida</button>
+          <button class="emoji-category-btn" data-category="activities">Atividades</button>
+          <button class="emoji-category-btn" data-category="objects">Objetos</button>
+          <button class="emoji-category-btn" data-category="symbols">Símbolos</button>
+        </div>
+        <div class="emoji-grid" id="emojiGrid">
+          <!-- Emojis serão carregados via JavaScript -->
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="/inbox/app.js?v=8"></script>
 </body>

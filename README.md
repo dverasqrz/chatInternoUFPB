@@ -2,7 +2,7 @@
 
 Sistema de chat institucional da UFPB com integração WhatsApp, gerenciamento de usuários e recursos avançados.
 
-## 🚀 Features
+## Features
 
 - **Chat em tempo real** com interface moderna
 - **Integração WhatsApp** via webhooks
@@ -11,6 +11,9 @@ Sistema de chat institucional da UFPB com integração WhatsApp, gerenciamento d
 - **Sistema administrativo** completo
 - **Limpeza de dados** com segurança
 - **Interface responsiva** e intuitiva
+- **Sistema de Templates** com controle administrativo
+- **Templates LGPD** para conformidade automática
+- **Modo offline** com fallback inteligente
 
 ## 📁 Estrutura do Projeto
 
@@ -188,7 +191,111 @@ O sistema usa JWT para autenticação:
 - `DELETE /api/v1/admin/cleanup/messages` - Limpar mensagens
 - `DELETE /api/v1/admin/cleanup/uploads` - Limpar uploads
 
-## 🎨 Interface Web
+### Templates
+- `GET /api/v1/templates/` - Listar templates
+- `POST /api/v1/templates/` - Criar template (admin)
+- `PUT /api/v1/templates/{id}/` - Atualizar template (admin)
+- `DELETE /api/v1/templates/{id}/` - Excluir template (admin)
+- `POST /api/v1/templates/initialize` - Inicializar templates do sistema (admin)
+
+## Templates de Mensagens
+
+### Sistema de Templates
+O sistema inclui um gerenciador completo de templates de mensagens:
+
+#### Templates do Sistema (Protegidos)
+- **LGPD**: Termo de consentimento para tratamento de dados
+- **Pesquisa**: Formulário de satisfação pós-atendimento
+
+#### Funcionalidades
+- **Acesso rápido**: Digite `/` no campo de mensagem
+- **Administração**: Apenas admins podem criar/editar/excluir
+- **Modo offline**: Fallback automático se backend estiver offline
+- **Categorias**: Organização por categorias (LGPD, Pesquisa, etc.)
+
+#### Como Usar
+1. **Para Atendentes**: Digite `/` e selecione o template desejado
+2. **Para Admins**: Acesse área administrativa > "Gerenciamento de Templates"
+3. **Criar Novo**: Como admin, clique em "Novo Template"
+4. **Editar/Excluir**: Use os botões de ação na lista de templates
+
+## Deploy em Produção
+
+### EasyPanel
+Para implantar no EasyPanel ou similar:
+
+1. **Preparar Ambiente**
+```bash
+git clone <repository-url>
+cd chatZapUFPB
+cp .env.example .env
+# Configure .env com credenciais reais
+```
+
+2. **Configurar Variáveis Essenciais**
+```env
+SECRET_KEY=chave-longa-e-aleatoria
+DATABASE_URL=postgresql+psycopg2://user:password@host:5432/dbname
+PUBLIC_DOMAIN=https://seu-dominio.com
+CORS_ORIGINS=https://seu-dominio.com
+ENVIRONMENT=production
+DEBUG=false
+```
+
+3. **Deploy Automático**
+```bash
+chmod +x scripts/deploy.sh
+./scripts/deploy.sh
+```
+
+4. **Deploy Manual**
+```bash
+docker-compose -f docker-compose.production.yml down
+docker-compose -f docker-compose.production.yml build --no-cache
+docker-compose -f docker-compose.production.yml up -d
+```
+
+### Configurações de Produção
+
+#### Segurança
+- Use `SECRET_KEY` forte e aleatória
+- Configure `CORS_ORIGINS` com domínio real
+- Use HTTPS em produção
+- Configure backup automático
+
+#### Banco de Dados
+- PostgreSQL recomendado
+- Configure backups diários
+- Monitore performance
+- Use connection pooling
+
+#### Monitoramento
+- Logs: `docker-compose logs -f app`
+- Health checks: `/health`
+- Métricas: Configure monitoring
+- Alertas: Configure notificações
+
+### Scripts Úteis
+
+#### Deploy Automático
+```bash
+# Script completo de deploy
+./scripts/deploy.sh
+```
+
+#### Inicialização de Templates
+```bash
+# Se necessário, execute manualmente
+python scripts/init_templates.py
+```
+
+#### Backup do Banco
+```bash
+# Backup completo
+docker exec ufpb_db_prod pg_dump -u ufpb ufpb_chat > backup_$(date +%Y%m%d).sql
+```
+
+## Interface Web
 
 ### Features
 - **Chat em tempo real** com polling inteligente
