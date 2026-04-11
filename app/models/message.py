@@ -27,6 +27,8 @@ class DeliveryStatus(str, Enum):
     RECEIVED = "received"
     QUEUED = "queued"
     SENT = "sent"
+    DELIVERED = "delivered"
+    READ = "read"
     FAILED = "failed"
 
 

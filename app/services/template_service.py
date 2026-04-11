@@ -86,10 +86,7 @@ class TemplateService:
                 logger.warning(f"Cannot update template {template_id}: not found")
                 return None
             
-            # Prevent modification of system templates
-            if template.is_system:
-                logger.warning(f"Cannot update system template {template_id}: protected")
-                raise ValueError("System templates cannot be modified")
+            # Removed system template update protection by request
             
             # Update fields if provided
             if template_data.title is not None:
@@ -123,10 +120,7 @@ class TemplateService:
                 logger.warning(f"Cannot delete template {template_id}: not found")
                 return False
             
-            # Prevent deletion of system templates
-            if template.is_system:
-                logger.warning(f"Cannot delete system template {template_id}: protected")
-                raise ValueError("System templates cannot be deleted")
+            # Removed system template deletion protection by request
             
             self.db.delete(template)
             self.db.commit()

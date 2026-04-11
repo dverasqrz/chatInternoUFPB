@@ -348,6 +348,7 @@ Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber ne
         The application is configured with:
         - Proper metadata for documentation
         - CORS middleware
+        - Logging middleware
         - Static file serving
         - Route registration
         - Exception handling
@@ -365,45 +366,12 @@ Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber ne
         
         # Configure application components
         self._setup_cors(app)
+        self._setup_logging_middleware(app)
         self._setup_static_files(app)
         self._setup_routes(app)
         setup_exception_handlers(app)
         
         return app
-
-def create_app(self) -> FastAPI:
-    """
-    Create and configure the FastAPI application instance.
-    
-    Returns:
-        FastAPI: Configured application instance
-        
-    The application is configured with:
-    - Proper metadata for documentation
-    - CORS middleware
-    - Static file serving
-    - Route registration
-    - Exception handling
-    - Lifespan management
-    """
-    app = FastAPI(
-        title=self.settings.app_name,
-        description="UFPB Chat System - Professional multi-attendant chat platform",
-        version="2.0.0",
-        lifespan=self.lifespan,
-        docs_url="/api/v1/docs",
-        redoc_url="/api/v1/redoc",
-        openapi_url="/api/v1/openapi.json"
-    )
-    
-    # Configure application components
-    self._setup_cors(app)
-    self._setup_logging_middleware(app)
-    self._setup_static_files(app)
-    self._setup_routes(app)
-    setup_exception_handlers(app)
-    
-    return app
 
 def create_application() -> FastAPI:
     """

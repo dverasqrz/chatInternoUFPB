@@ -1,23 +1,29 @@
 <!doctype html>
 <html lang="pt-BR">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>UFPB Chat - Inbox</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@500;700&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@500;700&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/inbox/styles.css?v=8">
 </head>
+
 <body>
   <div class="app-shell">
     <aside class="left-pane">
-      <header class="brand-block" style="display: flex; align-items: center; justify-content: flex-start; gap: 12px; padding: 4px 6px; min-height: 64px;">
+      <header class="brand-block"
+        style="display: flex; align-items: center; justify-content: flex-start; gap: 12px; padding: 4px 6px; min-height: 64px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <img src="/inbox/img/brasao.png" alt="UFPB" style="height: 48px; width: auto; object-fit: contain;">
           <img src="/inbox/img/sti_logo.png" alt="STI" style="height: 48px; width: auto; object-fit: contain;">
         </div>
         <div style="display: flex; flex-direction: column; justify-content: center;">
-          <h1 style="font-size: 1.15rem; margin: 0; font-family: Sora, Manrope, sans-serif; line-height: 1.2;">Atendimento CAU</h1>
+          <h1 style="font-size: 1.15rem; margin: 0; font-family: Sora, Manrope, sans-serif; line-height: 1.2;">
+            Atendimento CAU</h1>
           <p style="margin: 0; font-size: 0.85rem; color: var(--muted); font-weight: 500;">UFPB</p>
         </div>
       </header>
@@ -28,66 +34,80 @@
           <span id="currentUserEmail">-</span>
         </div>
         <div class="user-actions">
-          <button id="openPasswordBtn" class="btn btn-small btn-outline">Senha</button>
-          <button id="logoutBtn" class="btn btn-small btn-outline">Sair</button>
+          <button id="openPasswordBtn" class="btn btn-small">Senha</button>
+          <button id="logoutBtn" class="btn btn-small">Sair</button>
         </div>
       </div>
 
       <section id="adminSection" class="admin-section hidden">
-        <div class="admin-card">
-          <div class="admin-users-header">
-            <h3>Admin: Usuários</h3>
-            <button id="refreshUsersBtn" class="btn btn-small">Atualizar</button>
-          </div>
-          <div class="admin-users-filters">
-            <label class="checkbox-inline">
-              <input id="activeUsersOnly" type="checkbox" checked>
-              Somente ativos
-            </label>
-          </div>
-          <div class="users-table-wrapper">
-            <table class="users-table">
-              <thead>
-                <tr>
-                  <th>Nome</th>
-                  <th>Status</th>
-                  <th>Login (Recife)</th>
-                  <th>Logout (Recife)</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="adminUsersTableBody"></tbody>
-            </table>
-          </div>
+        <details class="admin-details-group"
+          style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px;">
+          <summary
+            style="padding: 10px 12px; font-size: 0.9rem; font-weight: 700; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none; list-style: none;">
+            <span>FERRAMENTAS ADMINISTRATIVAS</span>
+            <svg class="admin-accordion-arrow" xmlns="http://www.w3.org/2000/svg" width="16" height="16"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              stroke-linejoin="round" style="transition: transform 0.2s;">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </summary>
+          <div class="admin-card" style="border: none; border-top: 1px solid var(--line); border-radius: 0;">
+            <div class="admin-users-header">
+              <h4 style="margin: 0; font-size: 0.9rem;">Usuários Cadastrados</h4>
+              <button id="refreshUsersBtn" class="btn btn-small">Atualizar</button>
+            </div>
+            <div class="admin-users-filters">
+              <label class="checkbox-inline">
+                <input id="activeUsersOnly" type="checkbox" checked>
+                Somente ativos
+              </label>
+            </div>
+            <div class="users-table-wrapper">
+              <table class="users-table">
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Status</th>
+                    <th>Login (Recife)</th>
+                    <th>Logout (Recife)</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="adminUsersTableBody"></tbody>
+              </table>
+            </div>
 
-          <div class="admin-user-form">
-            <h4>Novo usuário</h4>
-            <label for="newUserName">Nome</label>
-            <input id="newUserName" maxlength="120">
-            <label for="newUserEmail">E-mail</label>
-            <input id="newUserEmail" type="email">
-            <label for="newUserPassword">Senha inicial</label>
-            <input id="newUserPassword" type="password" minlength="8">
-            <button id="createUserBtn" class="btn btn-small">Adicionar usuário</button>
-          </div>
-          
-          <div class="admin-templates-section">
-            <h4>Gerenciamento de Templates</h4>
-            <div class="templates-header">
-              <p>Gerencie as mensagens prontas usadas pelos atendentes.</p>
-              <button id="openTemplatesManagerBtn" class="btn btn-small">Gerenciar Templates</button>
+            <div class="admin-user-form">
+              <h4>Novo usuário</h4>
+              <label for="newUserName">Nome</label>
+              <input id="newUserName" maxlength="120">
+              <label for="newUserEmail">E-mail</label>
+              <input id="newUserEmail" type="email">
+              <label for="newUserPassword">Senha inicial</label>
+              <input id="newUserPassword" type="password" minlength="8">
+              <button id="createUserBtn" class="btn btn-small">Adicionar usuário</button>
             </div>
-            <div class="templates-summary" id="templatesSummary">
-              <p>Carregando...</p>
+
+            <div class="admin-templates-section" style="padding-top: 4px; border-top: 1px dashed var(--line);">
+              <h4>Gerenciamento de Templates</h4>
+              <div class="templates-header"
+                style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <p style="margin: 0; font-size: 0.8rem;">Gerencie as mensagens prontas.</p>
+                <button id="openTemplatesManagerBtn" class="btn btn-small">Gerenciar Templates</button>
+              </div>
+              <div class="templates-summary" id="templatesSummary" style="margin-top: 6px;">
+                <p style="margin: 0;">Carregando...</p>
+              </div>
+            </div>
+
+            <div class="admin-cleanup-form"
+              style="display: flex; flex-direction: column; gap: 8px; padding-top: 4px; border-top: 1px dashed var(--line);">
+              <h4>Limpeza do Sistema</h4>
+              <button id="cleanupSystemBtn" class="btn btn-small btn-outline">Apagar Mensagens</button>
+              <button id="cleanupContactsBtn" class="btn btn-small btn-outline">Apagar Contatos</button>
             </div>
           </div>
-          
-          <div class="admin-cleanup-form" style="display: flex; flex-direction: column; gap: 8px;">
-            <h4>Limpeza do Sistema</h4>
-            <button id="cleanupSystemBtn" class="btn btn-small">Apagar Mensagens e Uploads</button>
-            <button id="cleanupContactsBtn" class="btn btn-small">Apagar Todos os Contatos</button>
-          </div>
-        </div>
+        </details>
       </section>
 
       <div class="conversation-header">
@@ -108,7 +128,8 @@
         <div style="display: flex; align-items: center; gap: 12px;">
           <div id="chatHeaderAvatar" class="conversation-avatar" style="background-color: #b4cfc6;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" style="width: 28px; height: 28px;">
-              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+              <path
+                d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
             </svg>
           </div>
           <div>
@@ -117,7 +138,7 @@
           </div>
         </div>
         <div class="header-actions">
-          <button id="exportCurrentDayBtn" class="btn btn-outline btn-small hidden" type="button">Exportar dia atual</button>
+          <button id="exportCurrentDayBtn" class="btn btn-small hidden" type="button">Exportar atendimento</button>
           <span class="badge" id="messageCountBadge">0 mensagens</span>
         </div>
       </header>
@@ -140,23 +161,48 @@
 
         <div class="composer-row media-actions hidden" id="mediaActionsRow">
           <input type="file" id="imageFileInput" accept="image/*" class="hidden">
-          <button id="uploadImageBtn" class="btn btn-outline btn-small hidden" type="button">Enviar imagem local</button>
+          <button id="uploadImageBtn" class="btn btn-outline btn-small hidden" type="button">Enviar imagem
+            local</button>
           <button id="recordAudioBtn" class="btn btn-outline btn-small hidden" type="button">Gravar áudio</button>
-                  </div>
+        </div>
 
         <div class="composer-footer">
           <div class="composer-type-icons" id="typeIconsContainer">
             <button type="button" class="btn-icon" data-type="image" title="Enviar Imagem">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                <polyline points="21 15 16 10 5 21"></polyline>
+              </svg>
             </button>
             <button type="button" class="btn-icon" data-type="audio" title="Enviar Áudio">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <line x1="12" y1="19" x2="12" y2="23"></line>
+                <line x1="8" y1="23" x2="16" y2="23"></line>
+              </svg>
             </button>
             <button type="button" class="btn-icon" data-type="document" title="Enviar Documento">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <polyline points="10 9 9 9 8 9"></polyline>
+              </svg>
             </button>
             <button type="button" class="btn-icon" id="emojiBtn" title="Emogis">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M8 14s1.5 2 4 2 4-2 4-2"></path><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="9" x2="15.01" y2="9"></line></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                <line x1="15" y1="9" x2="15.01" y2="9"></line>
+              </svg>
             </button>
           </div>
           <div class="composer-actions">
@@ -172,7 +218,8 @@
         <div class="modal-header">
           <h2>Mensagens Prontas</h2>
           <button id="closeTemplatesBtn" class="btn-icon" title="Fechar">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
@@ -227,7 +274,7 @@
     <div class="modal">
       <h2 id="recordTitle">Gravar Áudio</h2>
       <p id="recordHelp">Clique em "Iniciar Gravação" e permita acesso ao microfone.</p>
-      
+
       <!-- Visualizador de áudio -->
       <div id="audioVisualizer" class="audio-visualizer hidden">
         <canvas id="audioCanvas" width="400" height="100"></canvas>
@@ -236,12 +283,12 @@
           <span>Gravando...</span>
         </div>
       </div>
-      
+
       <!-- Preview do áudio gravado -->
       <div id="audioPreview" class="audio-preview hidden">
         <audio id="audioPlayer" controls></audio>
       </div>
-      
+
       <div class="modal-actions">
         <button id="cancelRecordBtn" class="btn btn-outline" type="button">Cancelar</button>
         <button id="startRecordBtn" class="btn" type="button">Iniciar Gravação</button>
@@ -314,11 +361,13 @@
       </div>
       <div>
         <div style="display: flex; gap: 8px; margin-bottom: 16px;">
-          <input id="searchGlobalInput" type="text" placeholder="Digite uma palavra ou frase..." style="flex: 1;" minlength="3">
+          <input id="searchGlobalInput" type="text" placeholder="Digite uma palavra ou frase..." style="flex: 1;"
+            minlength="3">
           <button id="doSearchGlobalBtn" class="btn">Buscar</button>
         </div>
         <p id="searchGlobalStatus" class="muted" style="margin-bottom: 8px;"></p>
-        <div class="users-table-wrapper" style="max-height: 400px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
+        <div class="users-table-wrapper"
+          style="max-height: 400px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
           <ul id="searchGlobalResults" class="catalog-list" style="margin: 0; padding: 0; list-style: none;"></ul>
         </div>
       </div>
@@ -331,8 +380,11 @@
   <div id="emojiOverlay" class="overlay hidden">
     <div class="modal emoji-modal">
       <div class="modal-header">
-        <h3 style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #4e6c62; text-transform: uppercase; letter-spacing: 0.5px;">Escolher Emoji</h3>
-        <button class="close-btn" id="closeEmojiBtn" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #4e6c62;">&times;</button>
+        <h3
+          style="margin: 0; font-size: 0.95rem; font-weight: 700; color: #4e6c62; text-transform: uppercase; letter-spacing: 0.5px;">
+          Escolher Emoji</h3>
+        <button class="close-btn" id="closeEmojiBtn"
+          style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #4e6c62;">&times;</button>
       </div>
       <div class="modal-body">
         <div class="emoji-categories">
@@ -354,4 +406,5 @@
 
   <script src="/inbox/app.js?v=8"></script>
 </body>
+
 </html>

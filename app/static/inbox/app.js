@@ -470,6 +470,16 @@ function renderTemplates() {
   
   const isAdmin = state.user?.is_admin;
   
+  // Limpar botões "Novo Template" antigos (fora da lista) para evitar botões duplicados
+  if (els.templatesList && els.templatesList.parentElement) {
+    const oldBtns = els.templatesList.parentElement.querySelectorAll(".add-template-btn");
+    oldBtns.forEach(btn => {
+      if (btn.parentElement === els.templatesList.parentElement) {
+        btn.remove();
+      }
+    });
+  }
+  
   // Verificar se há templates
   if (!state.messageTemplates || state.messageTemplates.length === 0) {
     console.warn("Nenhum template disponível para renderizar");
@@ -529,8 +539,7 @@ function renderTemplates() {
                   <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                 </svg>
               </button>
-              ${!template.is_system ? `
-                <button class="btn-small btn-danger delete-template-btn" data-template-id="${template.id}" title="Excluir">
+                <button class="btn-small btn-outline delete-template-btn" data-template-id="${template.id}" title="Excluir">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="3,6 5,6 21,6"></polyline>
                     <path d="m19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
@@ -538,7 +547,6 @@ function renderTemplates() {
                     <line x1="14" y1="11" x2="14" y2="17"></line>
                   </svg>
                 </button>
-              ` : ''}
             </div>
           ` : ''}
         </div>
@@ -847,6 +855,11 @@ Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber ne
   
   // Atualizar resumo administrativo
   updateTemplatesSummary();
+
+  // Atualiza a visualização caso a lista de templates esteja aberta
+  if (state.showTemplates) {
+    renderTemplates();
+  }
 }
 
 // ===== Funções de Administração de Templates (Apenas Admin) =====
@@ -869,7 +882,7 @@ async function createTemplate(templateData) {
 
 async function updateTemplate(templateId, templateData) {
   try {
-    const response = await apiRequest(`/templates/${templateId}/`, {
+    const response = await apiRequest(`/templates/${templateId}`, {
       method: "PUT",
       body: JSON.stringify(templateData)
     });
@@ -886,7 +899,7 @@ async function updateTemplate(templateId, templateData) {
 
 async function deleteTemplate(templateId) {
   try {
-    await apiRequest(`/templates/${templateId}/`, {
+    await apiRequest(`/templates/${templateId}`, {
       method: "DELETE"
     });
     
@@ -934,14 +947,10 @@ function showTemplateEditor(template = null) {
               <textarea id="templateContent" required rows="8" 
                         placeholder="Conteúdo do template (use * para negrito)">${template ? template.content : ''}</textarea>
             </div>
-            ${isEdit && template.is_system ? `
-              <div class="warning-message">
-                <strong>Atenção:</strong> Este é um template do sistema e não pode ser completamente excluído.
-              </div>
-            ` : ''}
+
             <div class="form-actions">
               <button type="button" id="cancelTemplateEditorBtn" class="btn btn-outline">Cancelar</button>
-              <button type="submit" class="btn">${isEdit ? 'Atualizar' : 'Criar'}</button>
+              <button type="submit" id="submitTemplateEditorBtn" class="btn">${isEdit ? 'Atualizar' : 'Criar'}</button>
             </div>
           </form>
         </div>
@@ -968,6 +977,12 @@ function showTemplateEditor(template = null) {
       content: document.getElementById("templateContent").value.trim()
     };
     
+    const submitBtn = document.getElementById("submitTemplateEditorBtn");
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerText = 'Processando...';
+    }
+
     try {
       if (isEdit) {
         await updateTemplate(template.id, formData);
@@ -977,6 +992,10 @@ function showTemplateEditor(template = null) {
       closeTemplateEditor();
     } catch (error) {
       // Erro já tratado nas funções
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerText = isEdit ? 'Atualizar' : 'Criar';
+      }
     }
   });
   
@@ -1776,12 +1795,12 @@ function stringToColor(str) {
 function formatDeliveryStatus(status) {
   if (!status || status === "null") return "";
   const s = status.toLowerCase();
-  if (s === "sent") return "enviada";
-  if (s === "received") return "recebida";
-  if (s === "failed") return "falhou";
-  if (s === "delivered") return "entregue";
-  if (s === "read") return "lida";
-  if (s === "pending") return "pendente";
+  if (s === "queued") return "🕒";
+  if (s === "sent") return "✓";
+  if (s === "delivered") return "✓✓";
+  if (s === "read") return "✓✓";
+  if (s === "failed") return "❌";
+  if (s === "received") return "";
   return status;
 }
 
@@ -1819,9 +1838,44 @@ function renderConversations() {
   }
 }
 
+function formatWhatsAppText(text) {
+  if (!text) return "";
+  
+  // Reservar blocos de código
+  const codeBlocks = [];
+  let formatted = text.replace(/```([\s\S]*?)```/g, (match, p1) => {
+    codeBlocks.push(p1);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+  
+  // Reservar código inline
+  const inlineCodes = [];
+  formatted = formatted.replace(/`([^`]+)`/g, (match, p1) => {
+    inlineCodes.push(p1);
+    return `__INLINE_CODE_${inlineCodes.length - 1}__`;
+  });
+  
+  // Negrito (*texto*)
+  formatted = formatted.replace(/\*(?!\s)([^*]+?)(?<!\s)\*/g, '<strong>$1</strong>');
+  
+  // Itálico (_texto_)
+  formatted = formatted.replace(/_(?!\s)([^_]+?)(?<!\s)_/g, '<em>$1</em>');
+  
+  // Tachado (~texto~)
+  formatted = formatted.replace(/~(?!\s)([^~]+?)(?<!\s)~/g, '<del>$1</del>');
+  
+  // Restaurar códigos inline
+  formatted = formatted.replace(/__INLINE_CODE_(\d+)__/g, (match, i) => `<code>${inlineCodes[i]}</code>`);
+  
+  // Restaurar blocos de código
+  formatted = formatted.replace(/__CODE_BLOCK_(\d+)__/g, (match, i) => `<pre style="margin: 0.5em 0; padding: 0.5em; background: rgba(0,0,0,0.05); border-radius: 4px; overflow-x: auto;"><code>${codeBlocks[i]}</code></pre>`);
+  
+  return formatted;
+}
+
 function buildMessageBody(message) {
-  const safeText = escapeHtml(message.text_content || "");
-  const safeCaption = escapeHtml(message.media_caption || "");
+  const safeText = formatWhatsAppText(escapeHtml(message.text_content || ""));
+  const safeCaption = formatWhatsAppText(escapeHtml(message.media_caption || ""));
   const safeUrl = escapeHtml(message.media_url || "");
   if (message.message_type === "image" && message.media_url) {
     return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada">`;
@@ -1838,7 +1892,13 @@ function buildMessageBody(message) {
       : "";
     return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<audio class="message-audio" controls src="${safeUrl}"></audio>${encryptedHint}`;
   }
-    return `<p>${safeText || "[mensagem sem conteúdo textual]"}</p>`;
+  if (message.message_type === "text" || !message.message_type) {
+    if (message.text_content && message.text_content.includes("🚫 Essa mensagem foi apagada")) {
+      return `<p class="deleted-msg" style="font-style: italic; color: var(--muted); margin: 0;">${safeText}</p>`;
+    }
+    return `<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
+  }
+  return `<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
 }
 
 function openExportModal(referenceTimestamp) {
@@ -1982,8 +2042,10 @@ function renderMessages(messages, options = {}) {
       .map((message) => {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
-        return `<article class="message-item ${klass} message-new">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(formatDeliveryStatus(message.delivery_status))}</span></div>
+        const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
+            ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
+        return `<article class="message-item ${klass} message-new" data-id="${message.id}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${revokeBtn}</div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -2013,9 +2075,10 @@ function renderMessages(messages, options = {}) {
     const newMessagesHtml = messages
       .map((message) => {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
-        const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
-        return `<article class="message-item ${klass}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(formatDeliveryStatus(message.delivery_status))}</span></div>
+        const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
+            ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
+        return `<article class="message-item ${klass}" data-id="${message.id}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${revokeBtn}</div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -2035,8 +2098,10 @@ function renderMessages(messages, options = {}) {
       .map((message) => {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound" ? (message.sender_name || state.user?.name || "Funcionário") : (message.sender_name || "Cliente");
-        return `<article class="message-item ${klass}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span>${escapeHtml(formatDeliveryStatus(message.delivery_status))}</span></div>
+        const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
+            ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
+        return `<article class="message-item ${klass}" data-id="${message.id}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${revokeBtn}</div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -2909,6 +2974,37 @@ async function bootstrap() {
   } catch (error) {
     clearPolls();
     showToast(error.message || "Falha ao carregar inbox. Atualize a página.");
+  }
+}
+
+async function revokeMessage(messageId, btnElement) {
+  if (!state.selectedConversationId) return;
+  const conversationId = state.selectedConversationId;
+  const confirmed = confirm("Tem certeza que deseja apagar essa mensagem para todos? Essa ação não pode ser desfeita.");
+  if (!confirmed) return;
+
+  btnElement.disabled = true;
+  btnElement.style.opacity = 0.3;
+
+  try {
+    const updatedMessage = await apiRequest(`/conversations/${conversationId}/messages/${messageId}/revoke`, {
+      method: "POST"
+    });
+    showSuccessToast("Mensagem apagada com sucesso.");
+    
+    // Atualizar UI no ato sem precisar refazer tudo se já voltou ok.
+    const messageContainer = btnElement.closest('.message-item[data-id="' + messageId + '"]');
+    if (messageContainer) {
+      const msgBody = messageContainer.querySelector('.message-body');
+      if (msgBody) {
+        msgBody.innerHTML = '<span class="deleted-msg">🚫 Essa mensagem foi apagada</span>';
+      }
+      btnElement.remove(); // remove o botao depois que apagou
+    }
+  } catch (error) {
+    btnElement.disabled = false;
+    btnElement.style.opacity = 1.0;
+    showErrorToast(error.message || "Erro ao apagar mensagem.");
   }
 }
 

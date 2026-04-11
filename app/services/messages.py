@@ -300,6 +300,58 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "raw_payload": payload,
         }
 
+    # Novo tratamento para update
+    if event == "messages.update":
+        data_list = payload.get("data", [])
+        if isinstance(data_list, list) and len(data_list) > 0:
+            item = data_list[0]
+        elif isinstance(data_list, dict):
+            item = data_list
+        else:
+            item = {}
+        
+        key = item.get("key") or {}
+        update = item.get("update") or {}
+        
+        remote_jid = key.get("remoteJid") or item.get("remoteJid") or payload.get("remoteJid")
+        external_id = key.get("id") or item.get("keyId") or item.get("messageId")
+        status_raw = update.get("status") or item.get("status")
+        
+        status_num = None
+        if isinstance(status_raw, int):
+            status_num = status_raw
+        elif isinstance(status_raw, str):
+            status_str = status_raw.upper()
+            if status_str in ("ERROR", "FAILED"):
+                status_num = 0
+            elif status_str in ("PENDING", "QUEUED"):
+                status_num = 1
+            elif status_str in ("SERVER_ACK", "SENT"):
+                status_num = 2
+            elif status_str in ("DELIVERY_ACK", "DELIVERED"):
+                status_num = 3
+            elif status_str in ("READ", "PLAYED"):
+                status_num = 4
+        
+        return {
+            "event": event,
+            "contact_phone": _normalize_phone(remote_jid),
+            "external_message_id": external_id,
+            "status": status_num,
+            "raw_payload": payload,
+        }
+
+    # Novo tratamento para delete
+    if event == "messages.delete":
+        msg_data = payload.get("data", {})
+        msg_id = msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId")
+        return {
+            "event": event,
+            "contact_phone": _normalize_phone(msg_data.get("remoteJid")),
+            "external_message_id": msg_id,
+            "raw_payload": payload,
+        }
+
     body = _get_nested_dict(payload.get("body"))
     root = _get_nested_dict(payload.get("data")) or _get_nested_dict(body.get("data")) or body or payload
     sender = _get_nested_dict(root.get("sender"))
@@ -464,10 +516,49 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     if sender_phone and contact_phone == sender_phone:
         return None
 
+    # Tratamento especial de Eventos Atualização e Deleção
+    event = normalized.get("event")
+    if event == "messages.update":
+        msg_id = normalized.get("external_message_id")
+        status_num = normalized.get("status")
+        if msg_id and status_num is not None:
+            # Evolution API status codes: 2: sent, 3: delivered, 4: read
+            message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
+            if message:
+                if status_num == 0:
+                    message.delivery_status = DeliveryStatus.FAILED
+                elif status_num == 1:
+                    message.delivery_status = DeliveryStatus.QUEUED
+                elif status_num == 2:
+                    message.delivery_status = DeliveryStatus.SENT
+                elif status_num == 3:
+                    message.delivery_status = DeliveryStatus.DELIVERED
+                elif status_num >= 4:
+                    message.delivery_status = DeliveryStatus.READ
+                db.commit()
+                db.refresh(message)
+                return message
+        return None
+
+    if event == "messages.delete":
+        msg_id = normalized.get("external_message_id")
+        if msg_id:
+            message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
+            if message:
+                message.text_content = "🚫 Essa mensagem foi apagada"
+                message.media_url = None
+                message.media_mime_type = None
+                # Se for imagem ou outro tipo de mídia, mudamos para texto para ficar mais fácil
+                message.message_type = MessageType.TEXT
+                db.commit()
+                db.refresh(message)
+                return message
+        return None
+
     conversation = _get_or_create_conversation(
         db=db,
         contact_phone=normalized["contact_phone"],
-        contact_name=normalized["contact_name"],
+        contact_name=normalized.get("contact_name"),
     )
     
     profile_pic = normalized.get("profile_picture_url")
@@ -509,12 +600,12 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 logger = logging.getLogger(__name__)
                 logger.error(f"Erro ao tentar cachear foto de perfil: {e}")
     
-    if normalized.get("event") in ("contacts.upsert", "contacts.update"):
+    if event in ("contacts.upsert", "contacts.update"):
         return conversation
 
     conversation.last_message_at = datetime.now(timezone.utc)
 
-    sender_name = normalized["contact_name"]
+    sender_name = normalized.get("contact_name")
     delivery_status = DeliveryStatus.RECEIVED
     if direction == MessageDirection.OUTBOUND:
         sender_name = "CAU"

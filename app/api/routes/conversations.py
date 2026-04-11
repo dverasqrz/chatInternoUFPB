@@ -228,6 +228,86 @@ def delete_selected_messages(
 
     return MessageBulkDeleteResponse(deleted_count=len(messages))
 
+@router.post(
+    "/{conversation_id}/messages/{message_id}/revoke",
+    response_model=MessageRead,
+)
+async def revoke_message(
+    conversation_id: int,
+    message_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_password_changed),
+) -> MessageRead:
+    import httpx
+    from app.services.runtime_settings import get_or_create_runtime_settings, get_outbound_webhook_url
+    from app.services.messages import _build_outbound_request_security
+    
+    conversation = db.get(Conversation, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada.")
+
+    message = db.scalar(
+        select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.id == message_id,
+        )
+    )
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mensagem não encontrada.",
+        )
+
+    if not message.external_message_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não é possível revogar uma mensagem que não possui identificador externo no WhatsApp.",
+        )
+
+    runtime_settings = get_or_create_runtime_settings(db)
+    outbound_webhook_url = get_outbound_webhook_url(runtime_settings)
+    
+    if outbound_webhook_url:
+        outbound_payload = {
+            "conversation_id": conversation.id,
+            "message_id": message.id,
+            "external_message_id": message.external_message_id,
+            "to": conversation.contact_phone,
+            "message_type": "revoke",
+            "text": "Revogar mensagem",
+            "attendant": {
+                "id": current_user.id,
+                "name": current_user.name,
+                "email": current_user.email,
+            },
+        }
+
+        try:
+            outbound_headers, outbound_auth = _build_outbound_request_security(runtime_settings)
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    outbound_webhook_url,
+                    json=outbound_payload,
+                    headers=outbound_headers or None,
+                    auth=outbound_auth,
+                )
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Falha ao enviar requisição de revogação para N8N: {exc}",
+            )
+
+    # Marca imediatamente como apagada no banco
+    message.text_content = "🚫 Essa mensagem foi apagada"
+    message.media_url = None
+    message.media_mime_type = None
+    message.message_type = MessageType.TEXT
+    db.commit()
+    db.refresh(message)
+
+    return MessageRead.model_validate(message)
+
 
 @router.delete(
     "/{conversation_id}/messages/all",

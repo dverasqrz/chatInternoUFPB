@@ -687,23 +687,15 @@ body {
 
 
 .message-item {
-
   width: min(76ch, 82%);
-
   border: 1px solid var(--line);
-
-  border-radius: 14px;
-
-  padding: 10px 14px;
-
-  margin: 6px 0;
-
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-
-  font-size: 0.85rem;
-
+  border-radius: 12px;
+  padding: 6px 10px;
+  margin: 4px 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  font-size: 0.88rem;
+  line-height: 1.3;
   transition: all var(--transition-fast) ease;
-
 }
 
 
@@ -801,19 +793,12 @@ body {
 
 
 .message-meta {
-
   display: flex;
-
   gap: 8px;
-
   flex-wrap: wrap;
-
   font-size: 0.75rem;
-
   color: #56746b;
-
-  margin-bottom: 6px;
-
+  margin-bottom: 2px;
 }
 
 
@@ -2038,7 +2023,7 @@ select:focus {
 }
 
 .template-content {
-  color: var(--text-secondary);
+  color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -2276,7 +2261,7 @@ select:focus {
 .template-error-state {
   text-align: center;
   padding: 40px 20px;
-  color: var(--text-secondary);
+  color: var(--muted);
 }
 
 .template-empty-state p,
@@ -2304,4 +2289,37 @@ select:focus {
 .template-error-state p:first-child {
   color: #f44336;
   font-weight: 600;
+}
+
+/* Status and Revoke Styling */
+.msg-status {
+    font-size: 0.85em;
+    margin-left: 5px;
+    font-weight: bold;
+}
+.status-read {
+    color: #34b7f1; /* WhatsApp blue ticks */
+}
+.status-delivered, .status-sent {
+    color: #999;
+}
+.revoke-msg-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    margin-left: 8px;
+    font-size: 0.9em;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.revoke-msg-btn:hover {
+    opacity: 1;
+}
+
+/* Accordion Administrativo */
+.admin-details-group > summary::-webkit-details-marker {
+  display: none;
+}
+.admin-details-group[open] > summary .admin-accordion-arrow {
+  transform: rotate(180deg);
 }
