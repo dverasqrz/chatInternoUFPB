@@ -9,7 +9,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Sora:wght@500;700&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="/inbox/styles.css?v=8">
+  <link rel="stylesheet" href="/inbox/styles.css?v=9">
 </head>
 
 <body>
@@ -106,6 +106,24 @@
               <button id="cleanupSystemBtn" class="btn btn-small btn-outline">Apagar Mensagens</button>
               <button id="cleanupContactsBtn" class="btn btn-small btn-outline">Apagar Contatos</button>
             </div>
+
+            <div class="admin-ai-section" style="padding-top: 10px; border-top: 1px dashed var(--line); margin-top: 10px;">
+              <h4>Configuração da Inteligência Artificial</h4>
+              <p style="font-size: 0.75rem; color: var(--muted); margin-bottom: 10px;">Selecione o provedor de IA. Modelo e chave de API são configurados diretamente no n8n.</p>
+              <div class="ai-config-form">
+                <label for="configAiProvider">Provedor</label>
+                <select id="configAiProvider">
+                  <option value="gemini">Google Gemini</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="groq">Groq</option>
+                  <option value="ollama">Ollama (Local STI)</option>
+                </select>
+                
+                <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
+                  <button id="saveAiConfigBtn" class="btn btn-small" type="button">Salvar Configuração IA</button>
+                </div>
+              </div>
+            </div>
           </div>
         </details>
       </section>
@@ -116,6 +134,7 @@
           <button id="addContactBtn" class="btn-header">Novo</button>
           <button id="catalogBtn" class="btn-header">Catálogo</button>
           <button id="searchGlobalBtn" class="btn-header">Pesquisar</button>
+          <button id="aiConsultBtn" class="btn-header ai-btn">Consultar IA</button>
         </div>
       </div>
       <ul id="conversationList" class="conversation-list"></ul>
@@ -374,6 +393,45 @@
     </div>
   </div>
 
+  <div id="aiConsultOverlay" class="overlay hidden">
+    <div class="modal ai-consult-modal">
+      <div class="ai-consult-header">
+        <div>
+          <h2 class="ai-consult-title">Consultar IA</h2>
+          <p class="ai-consult-subtitle">Interaja com o agente de inteligência artificial da UFPB</p>
+        </div>
+        <div class="ai-header-actions">
+          <button id="clearAiHistoryBtn" type="button" class="btn-ai-action btn-ai-secondary" title="Limpar histórico">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Limpar
+          </button>
+          <button id="closeAiConsultBtn" type="button" class="ai-close-btn" title="Fechar">&times;</button>
+        </div>
+      </div>
+
+      <div class="ai-consult-history" id="aiHistory">
+        <div class="ai-history-empty" id="aiHistoryEmpty">
+          <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#cbd5e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <p>Faça sua primeira pergunta para a IA</p>
+        </div>
+      </div>
+
+      <div class="ai-consult-input">
+        <textarea id="aiQuestion" class="ai-input-textarea" rows="2" placeholder="Digite sua pergunta aqui..."></textarea>
+        <div class="ai-input-actions">
+          <button id="copyAiResponseBtn" type="button" class="btn-ai-action btn-ai-secondary" title="Copiar última resposta">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copiar
+          </button>
+          <button id="askAiBtn" type="button" class="btn-ai-action btn-ai-primary">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Perguntar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden"></div>
 
   <!-- Modal de Seleção de Emojis -->
@@ -404,7 +462,7 @@
     </div>
   </div>
 
-  <script src="/inbox/app.js?v=8"></script>
+  <script src="/inbox/app.js?v=9"></script>
 </body>
 
 </html>

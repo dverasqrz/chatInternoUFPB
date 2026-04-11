@@ -84,3 +84,14 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE runtime_settings
+                ADD COLUMN IF NOT EXISTS ai_provider VARCHAR(50) NOT NULL DEFAULT 'gemini',
+                ADD COLUMN IF NOT EXISTS ai_api_key VARCHAR(500),
+                ADD COLUMN IF NOT EXISTS ai_base_url VARCHAR(500) DEFAULT 'https://ollama.sti.ufpb.br/',
+                ADD COLUMN IF NOT EXISTS ai_model VARCHAR(100);
+                """
+            )
+        )

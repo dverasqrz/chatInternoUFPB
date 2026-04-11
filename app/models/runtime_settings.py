@@ -20,6 +20,12 @@ class RuntimeSettings(Base):
     outbound_auth_basic_password: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     outbound_auth_jwt_token: Mapped[str | None] = mapped_column(String(2000), nullable=True)
     inbound_webhook_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    
+    # AI configuration
+    ai_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="gemini", server_default="gemini")
+    ai_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    ai_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default="https://ollama.sti.ufpb.br/")
+    ai_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

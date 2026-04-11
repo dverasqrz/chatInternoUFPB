@@ -176,7 +176,8 @@ class ApplicationFactory:
         """
         from app.api.routes import (
             admin, auth, conversations, health, 
-            templates, uploads, uploads_v2, users, webhook, whatsapp_tools
+            templates, uploads, uploads_v2, users, 
+            webhook, whatsapp_tools, ai
         )
         
         api_prefix = self.settings.api_v1_prefix
@@ -201,6 +202,9 @@ class ApplicationFactory:
         
         # WhatsApp-specific tools
         app.include_router(whatsapp_tools.router, prefix=api_prefix, tags=["WhatsApp Tools"])
+        
+        # AI assistance
+        app.include_router(ai.router, prefix=api_prefix, tags=["AI Assistance"])
         
         # Root redirect to frontend
         @app.get("/", include_in_schema=False, response_class=RedirectResponse)

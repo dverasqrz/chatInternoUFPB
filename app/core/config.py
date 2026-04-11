@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     n8n_outbound_auth_basic_password: str | None = None
     n8n_outbound_auth_jwt_token: str | None = None
     
+    # AI Webhook settings
+    ai_webhook_url_test: AnyHttpUrl | None = None
+    ai_webhook_url_prod: AnyHttpUrl | None = None
+    ai_webhook_username: str | None = None
+    ai_webhook_password: str | None = None
+    ollama_base_url: str = "https://ollama.sti.ufpb.br/"
+    
     # Media settings
     media_storage_path: Path = Path("/app/uploads")
     media_max_file_size: int = 25 * 1024 * 1024  # 25MB
@@ -87,7 +94,7 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("n8n_inbound_webhook_url", "n8n_outbound_webhook_url", mode="before")
+    @field_validator("n8n_inbound_webhook_url", "n8n_outbound_webhook_url", "ai_webhook_url_test", "ai_webhook_url_prod", mode="before")
     @classmethod
     def normalize_outbound_url(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():

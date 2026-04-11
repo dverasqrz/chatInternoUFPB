@@ -7,8 +7,11 @@ from app.api.deps import get_current_admin
 from app.db.session import get_db
 from app.models.runtime_settings import RuntimeSettings
 from app.models.user import User
-from app.schemas.admin import WebhookSettingsRead, WebhookSettingsUpdate
-from app.services.runtime_settings import get_or_create_runtime_settings
+from app.schemas.admin import (
+    WebhookSettingsRead, WebhookSettingsUpdate,
+    AISettingsRead, AISettingsUpdate
+)
+from app.services.runtime_settings import get_or_create_runtime_settings, invalidate_runtime_cache
 import os
 import shutil
 from pathlib import Path
@@ -112,7 +115,12 @@ def update_webhook_settings(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_admin),
 ) -> WebhookSettingsRead:
-    runtime = get_or_create_runtime_settings(db)
+    # Always load from the CURRENT session to avoid cross-session cache errors
+    from app.models.runtime_settings import RuntimeSettings as _RS
+    runtime = db.get(_RS, 1)
+    if runtime is None:
+        runtime = _RS(id=1)
+        db.add(runtime)
 
     if "outbound_webhook_url" in payload.model_fields_set:
         runtime.outbound_webhook_url = payload.outbound_webhook_url.strip() if payload.outbound_webhook_url else None
@@ -150,7 +158,51 @@ def update_webhook_settings(
 
     db.commit()
     db.refresh(runtime)
+    invalidate_runtime_cache()  # Invalidate so next read reloads from DB
     return _read_payload(runtime)
+
+
+@router.get("/ai-settings", response_model=AISettingsRead)
+def get_ai_settings(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> AISettingsRead:
+    # Always read from DB on admin GET to get accurate current state
+    runtime = get_or_create_runtime_settings(db)
+    return AISettingsRead(
+        ai_provider=runtime.ai_provider,
+    )
+
+
+@router.put("/ai-settings", response_model=AISettingsRead)
+def update_ai_settings(
+    payload: AISettingsUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> AISettingsRead:
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    # IMPORTANT: always load from the CURRENT session, never from the cache.
+    from app.models.runtime_settings import RuntimeSettings as _RS
+    runtime = db.get(_RS, 1)
+    if runtime is None:
+        runtime = _RS(id=1, ai_provider="gemini")
+        db.add(runtime)
+
+    if payload.ai_provider is not None:
+        runtime.ai_provider = payload.ai_provider
+
+    db.commit()
+    db.refresh(runtime)
+
+    _logger.info(f"✅ AI settings saved to DB — provider: {runtime.ai_provider}")
+
+    # Invalidate the in-memory cache so the next read reloads from DB
+    invalidate_runtime_cache()
+    return AISettingsRead(
+        ai_provider=runtime.ai_provider,
+    )
 
 
 @router.delete("/cleanup/messages", status_code=status.HTTP_200_OK)

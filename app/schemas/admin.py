@@ -1,9 +1,8 @@
 from typing import Literal
-
 from pydantic import BaseModel, Field, field_validator
 
 OutboundAuthType = Literal["none", "header", "basic", "jwt"]
-
+AIProvider = Literal["gemini", "openai", "groq", "ollama"]
 
 class WebhookSettingsRead(BaseModel):
     outbound_webhook_url: str | None
@@ -14,7 +13,6 @@ class WebhookSettingsRead(BaseModel):
     outbound_auth_secret_preview: str | None
     inbound_webhook_token_configured: bool
     inbound_webhook_token_preview: str | None
-
 
 class WebhookSettingsUpdate(BaseModel):
     outbound_webhook_url: str | None = Field(default=None, max_length=1000)
@@ -42,3 +40,9 @@ class WebhookSettingsUpdate(BaseModel):
             trimmed = value.strip()
             return trimmed or None
         return value
+
+class AISettingsRead(BaseModel):
+    ai_provider: str
+
+class AISettingsUpdate(BaseModel):
+    ai_provider: AIProvider | None = None

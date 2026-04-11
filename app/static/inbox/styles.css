@@ -2323,3 +2323,241 @@ select:focus {
 .admin-details-group[open] > summary .admin-accordion-arrow {
   transform: rotate(180deg);
 }
+.btn-header.ai-btn {
+  background: linear-gradient(135deg, #6e8efb 0%, #a777e3 100%);
+  color: white;
+  border: none;
+  font-weight: 700;
+  box-shadow: 0 4px 6px rgba(110, 142, 251, 0.2);
+  transition: all 0.2s ease;
+}
+
+.btn-header.ai-btn:hover {
+  background: linear-gradient(135deg, #5a7dfa 0%, #9666d2 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 12px rgba(110, 142, 251, 0.3);
+}
+
+/* ── AI Consultation Modal ────────────────────────────────────── */
+.ai-consult-modal {
+  width: min(1400px, 96vw) !important;
+  max-width: none !important;          /* Override base .modal max-width: 380px */
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-radius: 18px;
+  overflow: hidden;
+  gap: 0;
+}
+
+/* Header */
+.ai-consult-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 22px 28px 18px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(135deg, #f0f4ff 0%, #faf8ff 100%);
+  flex-shrink: 0;
+}
+
+.ai-consult-title {
+  font-family: 'Sora', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #1a202c;
+  margin: 0 0 3px 0;
+}
+
+.ai-consult-subtitle {
+  font-size: 0.78rem;
+  color: #718096;
+  margin: 0;
+  font-weight: 400;
+}
+
+.ai-close-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #a0aec0;
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+  margin-top: -2px;
+}
+
+.ai-close-btn:hover {
+  background: #fee2e2;
+  color: #e53e3e;
+}
+
+/* Body - two columns side by side */
+.ai-consult-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  padding: 24px 32px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ai-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4a5568;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ai-label svg {
+  color: #7c3aed;
+}
+
+.ai-textarea {
+  flex: 1;
+  resize: none;
+  font-size: 0.88rem;
+  font-family: 'Manrope', sans-serif;
+  line-height: 1.7;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1.5px solid #e2e8f0;
+  background: #fff;
+  color: #2d3748;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  min-height: 400px;
+}
+
+.ai-textarea:focus {
+  outline: none;
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+}
+
+.ai-response {
+  background: #f8fafc;
+  color: #374151;
+  border-color: #cbd5e0;
+  cursor: default;
+}
+
+.ai-response:focus {
+  border-color: #cbd5e0;
+  box-shadow: none;
+}
+
+/* Footer */
+.ai-consult-footer {
+  padding: 14px 28px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.ai-footer-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Small modern action buttons */
+.btn-ai-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-family: 'Manrope', sans-serif;
+  white-space: nowrap;
+}
+
+.btn-ai-secondary {
+  background: #fff;
+  color: #4a5568;
+  border-color: #cbd5e0;
+}
+
+.btn-ai-secondary:hover {
+  background: #f0f4ff;
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+
+.btn-ai-primary {
+  background: linear-gradient(135deg, #6e8efb 0%, #7c3aed 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.25);
+}
+
+.btn-ai-primary:hover {
+  background: linear-gradient(135deg, #5a7dfa 0%, #6d28d9 100%);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.35);
+  transform: translateY(-1px);
+}
+
+.btn-ai-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Admin AI Config ──────────────────────────────────────────── */
+.admin-ai-section {
+  background: #ffffff;
+  border: 1px solid #edf2f7;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.ai-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-config-form label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #4a5568;
+  margin-bottom: -4px;
+}
+
+.ai-config-form select, .ai-config-form input {
+  font-size: 0.85rem;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+/* ── AI Modal responsive layout ──────────────────────────────── */
+@media (max-width: 900px) {
+  .ai-consult-body {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .ai-textarea {
+    min-height: 220px;
+  }
+}

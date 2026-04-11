@@ -141,6 +141,16 @@ const els = {
   catalogSearch: document.getElementById("catalogSearch"),
   catalogList: document.getElementById("catalogList"),
   toast: document.getElementById("toast"),
+  aiConsultBtn: document.getElementById("aiConsultBtn"),
+  aiConsultOverlay: document.getElementById("aiConsultOverlay"),
+  closeAiConsultBtn: document.getElementById("closeAiConsultBtn"),
+  copyAiResponseBtn: document.getElementById("copyAiResponseBtn"),
+  askAiBtn: document.getElementById("askAiBtn"),
+  aiQuestion: document.getElementById("aiQuestion"),
+  aiResponse: document.getElementById("aiResponse"),
+  // AI Config (Admin)
+  configAiProvider: document.getElementById("configAiProvider"),
+  saveAiConfigBtn: document.getElementById("saveAiConfigBtn"),
 };
 
 function setSession(token, user) {
@@ -2578,6 +2588,87 @@ async function loadCatalog() {
   }
 }
 
+function openAiConsultModal() {
+  els.aiQuestion.value = "";
+  els.aiResponse.value = "";
+  els.aiConsultOverlay.classList.remove("hidden");
+  els.aiQuestion.focus();
+}
+
+function closeAiConsultModal() {
+  els.aiConsultOverlay.classList.add("hidden");
+}
+
+async function askAi() {
+  const question = els.aiQuestion.value.trim();
+  if (!question) {
+    showToast("Por favor, digite uma pergunta.");
+    return;
+  }
+
+  els.askAiBtn.disabled = true;
+  els.askAiBtn.textContent = "Processando...";
+  els.aiResponse.value = "Pensando...";
+
+  try {
+    const response = await apiRequest("/ai/ask", {
+      method: "POST",
+      body: JSON.stringify({ question })
+    });
+    els.aiResponse.value = response.answer || "Sem resposta da IA.";
+  } catch (error) {
+    // Show the full detail returned by the backend so the admin can diagnose
+    els.aiResponse.value = "❌ " + (error.message || "Erro desconhecido ao consultar a IA.");
+  } finally {
+    els.askAiBtn.disabled = false;
+    els.askAiBtn.textContent = "Perguntar";
+  }
+}
+
+function copyAiResponse() {
+  const responseText = els.aiResponse.value;
+  if (!responseText || responseText === "Pensando..." || responseText.startsWith("Erro")) {
+    showToast("Não há resposta válida para copiar.");
+    return;
+  }
+
+  navigator.clipboard.writeText(responseText).then(() => {
+    showToast("Resposta copiada para a área de transferência!", "success");
+  }).catch(err => {
+    console.error('Erro ao copiar:', err);
+    showToast("Falha ao copiar resposta.");
+  });
+}
+
+// AI Config Logic
+async function loadAiSettings() {
+  try {
+    const settings = await apiRequest("/admin/ai-settings");
+    els.configAiProvider.value = settings.ai_provider;
+  } catch (error) {
+    console.error("Erro ao carregar configurações de IA:", error);
+  }
+}
+
+async function saveAiSettings() {
+  const payload = {
+    ai_provider: els.configAiProvider.value,
+  };
+
+  try {
+    els.saveAiConfigBtn.disabled = true;
+    await apiRequest("/admin/ai-settings", {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+    showToast("Configuração de IA salva com sucesso!", "success");
+  } catch (error) {
+    showToast("Erro ao salvar configuração: " + error.message);
+  } finally {
+    els.saveAiConfigBtn.disabled = false;
+  }
+}
+
 function renderCatalog(contactsToRender) {
   els.catalogList.innerHTML = "";
   if (contactsToRender.length === 0) {
@@ -2888,6 +2979,19 @@ function bindEvents() {
   
   els.catalogBtn.addEventListener("click", loadCatalog);
   els.closeCatalogBtn.addEventListener("click", () => els.catalogOverlay.classList.add("hidden"));
+
+  els.aiConsultBtn.addEventListener("click", openAiConsultModal);
+  els.closeAiConsultBtn.addEventListener("click", closeAiConsultModal);
+  els.askAiBtn.addEventListener("click", askAi);
+  els.copyAiResponseBtn.addEventListener("click", copyAiResponse);
+
+  // AI Admin Config
+  els.saveAiConfigBtn.addEventListener("click", saveAiSettings);
+  
+  // Load initial if admin
+  if (state.user && state.user.is_admin) {
+    loadAiSettings();
+  }
 }
 
 async function performGlobalSearch() {
