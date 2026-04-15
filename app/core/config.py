@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     
     # Database settings
-    database_url: str = "postgresql+psycopg2://ufpb:ufpb123@db:5432/ufpb_chat"
+    database_url: str = "postgresql+psycopg2://postgres:s4MFwYYUz5kY3B9W@db.rcfjdwtwfbrlfaosvvno.supabase.co:5432/postgres"
     database_pool_size: int = 5
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
