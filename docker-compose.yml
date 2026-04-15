@@ -1,6 +1,6 @@
 services:
 
-  app:
+  automacoes_sti_ufpb_whatsapp_fastapi:
     image: ufpb_app_image:latest
     build: 
       context: .
@@ -8,7 +8,7 @@ services:
       args:
         - BUILD_DATE=${BUILD_DATE:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
         - VERSION=${VERSION:-2.0.0}
-    container_name: ufpb_app
+    container_name: automacoes_sti_ufpb_whatsapp_fastapi
     restart: unless-stopped
     env_file:
       - .env
@@ -22,7 +22,7 @@ services:
       - ./runtime:/app/runtime
       - ./logs:/app/logs
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
