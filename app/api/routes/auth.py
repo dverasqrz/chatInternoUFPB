@@ -66,9 +66,7 @@ def get_current_user_info(
 
 
 @router.get("/config", response_model=dict)
-def get_public_config(
-    current_user: User = Depends(get_current_user),
-) -> dict:
+def get_public_config() -> dict:
     """Get public configuration for frontend (domain, etc.)."""
     from app.core.config import get_settings
     

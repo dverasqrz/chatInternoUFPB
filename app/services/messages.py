@@ -555,10 +555,14 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 return message
         return None
 
+    contact_name = normalized.get("contact_name")
+    if direction == MessageDirection.OUTBOUND and contact_name and contact_name.strip().upper() == "CAU":
+        contact_name = None
+
     conversation = _get_or_create_conversation(
         db=db,
         contact_phone=normalized["contact_phone"],
-        contact_name=normalized.get("contact_name"),
+        contact_name=contact_name,
     )
     
     profile_pic = normalized.get("profile_picture_url")
@@ -608,7 +612,8 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     sender_name = normalized.get("contact_name")
     delivery_status = DeliveryStatus.RECEIVED
     if direction == MessageDirection.OUTBOUND:
-        sender_name = "CAU"
+        if sender_name and sender_name.strip().upper() == "CAU":
+            sender_name = None
         delivery_status = DeliveryStatus.SENT
 
     message = Message(
