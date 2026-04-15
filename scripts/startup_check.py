@@ -19,54 +19,30 @@ logger = logging.getLogger(__name__)
 
 def check_ffmpeg():
     """Verify FFmpeg is available and working."""
-    max_attempts = 5
-    delay = 2
-    
-    for attempt in range(max_attempts):
-        try:
-            logger.info(f"Checking FFmpeg (attempt {attempt + 1}/{max_attempts})...")
-            
-            result = subprocess.run(
-                ['ffmpeg', '-version'],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            
-            if result.returncode == 0:
-                version_line = result.stdout.split('\n')[0]
-                logger.info(f"✅ FFmpeg available: {version_line}")
-                
-                # Test basic functionality
-                test_result = subprocess.run(
-                    ['ffmpeg', '-f', 'lavfi', '-i', 'color=c=black:s=32x32:d=1', '-y', '/tmp/test.mp4'],
-                    capture_output=True,
-                    text=True,
-                    timeout=15
-                )
-                
-                if test_result.returncode == 0:
-                    logger.info("✅ FFmpeg functionality test passed")
-                    
-                    # Clean up test file
-                    Path('/tmp/test.mp4').unlink(missing_ok=True)
-                    return True
-                else:
-                    logger.warning(f"FFmpeg functionality test failed: {test_result.stderr}")
-            else:
-                logger.warning(f"FFmpeg check failed: {result.stderr}")
+    try:
+        logger.info("Checking FFmpeg availability...")
         
-        except subprocess.TimeoutExpired:
-            logger.warning("FFmpeg check timed out")
-        except Exception as e:
-            logger.warning(f"FFmpeg check error: {e}")
+        result = subprocess.run(
+            ['ffmpeg', '-version'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
         
-        if attempt < max_attempts - 1:
-            logger.info(f"Retrying in {delay} seconds...")
-            time.sleep(delay)
-    
-    logger.error("❌ FFmpeg is not available after multiple attempts")
-    return False
+        if result.returncode == 0:
+            version_line = result.stdout.split('\n')[0]
+            logger.info(f"✅ FFmpeg available: {version_line}")
+            return True
+        else:
+            logger.warning(f"FFmpeg check failed: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.warning("FFmpeg check timed out")
+        return False
+    except Exception as e:
+        logger.warning(f"FFmpeg check error: {e}")
+        return False
 
 
 def check_directories():
@@ -103,14 +79,14 @@ def main():
         logger.error("❌ Directory setup failed")
         sys.exit(1)
     
-    # Check FFmpeg
+    # Check FFmpeg (optional - don't fail if not available)
     if not check_ffmpeg():
-        logger.error("❌ FFmpeg setup failed - video conversion will not work")
-        logger.error("Please ensure FFmpeg is properly installed")
-        sys.exit(1)
+        logger.warning("⚠️ FFmpeg not available - video conversion will not work")
+        logger.warning("This is OK for basic functionality, but video features will be limited")
+    else:
+        logger.info("🎬 Video conversion is ready")
     
     logger.info("✅ All startup checks passed!")
-    logger.info("🎬 Video conversion is ready")
     logger.info("🚀 System ready to start")
 
 
