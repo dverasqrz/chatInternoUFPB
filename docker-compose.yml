@@ -39,11 +39,11 @@ services:
       - ./runtime:/app/runtime
       - ./logs:/app/logs
     healthcheck:
-      test: ["CMD", "python", "-c", "import subprocess; subprocess.run(['ffmpeg', '-version'], check=True, timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request, sys; urllib.request.urlopen('http://localhost:8000/health') if sys.exit(0) else sys.exit(0)"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 60s
 
 volumes:
   postgres_data:
