@@ -1,6 +1,7 @@
 services:
 
   app:
+    image: ufpb_app_image:latest
     build: 
       context: .
       dockerfile: Dockerfile
