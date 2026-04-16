@@ -148,6 +148,9 @@ const els = {
   askAiBtn: document.getElementById("askAiBtn"),
   aiQuestion: document.getElementById("aiQuestion"),
   aiResponse: document.getElementById("aiResponse"),
+  clearAiHistoryBtn: document.getElementById("clearAiHistoryBtn"),
+  aiHistory: document.getElementById("aiHistory"),
+  aiHistoryEmpty: document.getElementById("aiHistoryEmpty"),
   // AI Config (Admin)
   configAiProvider: document.getElementById("configAiProvider"),
   saveAiConfigBtn: document.getElementById("saveAiConfigBtn"),
@@ -2600,6 +2603,61 @@ function openAiConsultModal() {
   els.aiResponse.value = "";
   els.aiConsultOverlay.classList.remove("hidden");
   els.aiQuestion.focus();
+  // Scroll para o final do histórico
+  if (els.aiHistory) {
+    els.aiHistory.scrollTop = els.aiHistory.scrollHeight;
+  }
+}
+
+// Adicionar mensagem ao histórico de IA
+function addAiMessage(text, type = "assistant") {
+  if (!els.aiHistory) return;
+
+  // Esconder mensagem vazia
+  if (els.aiHistoryEmpty) {
+    els.aiHistoryEmpty.style.display = "none";
+  }
+
+  const messageDiv = document.createElement("div");
+  messageDiv.className = `ai-message ${type}`;
+
+  const time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+  messageDiv.innerHTML = `
+    <div class="ai-message-content">${escapeHtml(text)}</div>
+    <div class="ai-message-time">${time}</div>
+  `;
+
+  els.aiHistory.appendChild(messageDiv);
+
+  // Scroll para a nova mensagem
+  els.aiHistory.scrollTop = els.aiHistory.scrollHeight;
+}
+
+// Limpar histórico de IA
+function clearAiHistory() {
+  if (!els.aiHistory) return;
+
+  // Remover todas as mensagens (manter apenas o empty state)
+  const messages = els.aiHistory.querySelectorAll(".ai-message");
+  messages.forEach(msg => msg.remove());
+
+  // Mostrar mensagem vazia
+  if (els.aiHistoryEmpty) {
+    els.aiHistoryEmpty.style.display = "flex";
+  }
+
+  // Limpar textarea hidden também
+  els.aiResponse.value = "";
+
+  showToast("Histórico limpo!", "success");
+}
+
+// Escape HTML para segurança
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 function closeAiConsultModal() {
@@ -2613,19 +2671,55 @@ async function askAi() {
     return;
   }
 
+  // Adicionar mensagem do usuário ao histórico
+  addAiMessage(question, "user");
+
+  // Limpar input
+  els.aiQuestion.value = "";
+  els.aiQuestion.focus();
+
   els.askAiBtn.disabled = true;
   els.askAiBtn.textContent = "Processando...";
-  els.aiResponse.value = "Pensando...";
+
+  // Adicionar indicador de "pensando"
+  const thinkingDiv = document.createElement("div");
+  thinkingDiv.className = "ai-message assistant ai-thinking";
+  thinkingDiv.innerHTML = `
+    <div class="ai-message-content">
+      <span class="ai-typing-indicator">
+        <span></span><span></span><span></span>
+      </span>
+    </div>
+  `;
+  if (els.aiHistory) {
+    els.aiHistory.appendChild(thinkingDiv);
+    els.aiHistory.scrollTop = els.aiHistory.scrollHeight;
+  }
 
   try {
     const response = await apiRequest("/ai/ask", {
       method: "POST",
       body: JSON.stringify({ question })
     });
-    els.aiResponse.value = response.answer || "Sem resposta da IA.";
+
+    // Remover indicador de "pensando"
+    thinkingDiv.remove();
+
+    const answer = response.answer || "Sem resposta da IA.";
+    els.aiResponse.value = answer;
+
+    // Adicionar resposta da IA ao histórico
+    addAiMessage(answer, "assistant");
+
   } catch (error) {
-    // Show the full detail returned by the backend so the admin can diagnose
-    els.aiResponse.value = "❌ " + (error.message || "Erro desconhecido ao consultar a IA.");
+    // Remover indicador de "pensando"
+    thinkingDiv.remove();
+
+    const errorMsg = "❌ " + (error.message || "Erro desconhecido ao consultar a IA.");
+    els.aiResponse.value = errorMsg;
+
+    // Adicionar erro ao histórico
+    addAiMessage(errorMsg, "assistant");
   } finally {
     els.askAiBtn.disabled = false;
     els.askAiBtn.textContent = "Perguntar";
@@ -2633,8 +2727,20 @@ async function askAi() {
 }
 
 function copyAiResponse() {
-  const responseText = els.aiResponse.value;
-  if (!responseText || responseText === "Pensando..." || responseText.startsWith("Erro")) {
+  // Pegar a última resposta do histórico (mensagem do assistant mais recente)
+  const assistantMessages = els.aiHistory?.querySelectorAll(".ai-message.assistant");
+  let responseText = els.aiResponse.value;
+
+  // Se houver mensagens no histórico, pegar a última
+  if (assistantMessages && assistantMessages.length > 0) {
+    const lastMessage = assistantMessages[assistantMessages.length - 1];
+    const content = lastMessage.querySelector(".ai-message-content");
+    if (content) {
+      responseText = content.textContent;
+    }
+  }
+
+  if (!responseText || responseText === "Pensando..." || responseText.startsWith("❌") || responseText.startsWith("Erro")) {
     showToast("Não há resposta válida para copiar.");
     return;
   }
@@ -2991,6 +3097,19 @@ function bindEvents() {
   els.closeAiConsultBtn.addEventListener("click", closeAiConsultModal);
   els.askAiBtn.addEventListener("click", askAi);
   els.copyAiResponseBtn.addEventListener("click", copyAiResponse);
+  if (els.clearAiHistoryBtn) {
+    els.clearAiHistoryBtn.addEventListener("click", clearAiHistory);
+  }
+
+  // Permitir enviar com Enter (sem Shift) no campo de pergunta
+  if (els.aiQuestion) {
+    els.aiQuestion.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        askAi();
+      }
+    });
+  }
 
   // AI Admin Config
   els.saveAiConfigBtn.addEventListener("click", saveAiSettings);

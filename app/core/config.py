@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     
     # Database settings
-    database_url: str = "postgresql+psycopg2://postgres.rcfjdwtwfbrlfaosvvno:s4MFwYYUz5kY3B9W@aws-1-us-west-2.pooler.supabase.com:5432/postgres"
+    # SUPABASE - comentado para usar banco interno
+    # database_url: str = "postgresql+psycopg2://postgres.rcfjdwtwfbrlfaosvvno:s4MFwYYUz5kY3B9W@aws-1-us-west-2.pooler.supabase.com:5432/postgres"
+    # BANCO INTERNO UFPB
+    database_url: str = "postgresql+psycopg2://cau_ufpb:s4MFwYYUz5kY3B9W@automacoes_sti_ufpb_bd_whatsapp_interno_cau:5432/ufpb_chat?sslmode=disable"
     database_pool_size: int = 5
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
@@ -47,8 +50,15 @@ class Settings(BaseSettings):
     webhook_retry_attempts: int = 3
     
     # N8N integration settings
-    n8n_inbound_webhook_url: AnyHttpUrl | None = None
-    n8n_outbound_webhook_url: AnyHttpUrl | None = None
+    # Modo dos webhooks: "test" ou "prod" (padrão)
+    n8n_webhook_mode: Literal["test", "prod"] = "prod"
+    # Webhook de entrada (EvolutionAPI -> n8n)
+    n8n_inbound_webhook_url_test: AnyHttpUrl | None = None
+    n8n_inbound_webhook_url_prod: AnyHttpUrl | None = None
+    # Webhook de saída (FastAPI -> n8n)
+    n8n_outbound_webhook_url_test: AnyHttpUrl | None = None
+    n8n_outbound_webhook_url_prod: AnyHttpUrl | None = None
+    # Autenticação do webhook de saída
     n8n_outbound_auth_type: Literal["none", "header", "basic", "jwt"] = "none"
     n8n_outbound_auth_header_name: str | None = None
     n8n_outbound_auth_header_value: str | None = None
@@ -59,6 +69,8 @@ class Settings(BaseSettings):
     # AI Webhook settings
     ai_webhook_url_test: AnyHttpUrl | None = None
     ai_webhook_url_prod: AnyHttpUrl | None = None
+    # Modo do webhook: "test" (usa AI_WEBHOOK_URL_TEST) ou "prod" (usa AI_WEBHOOK_URL_PROD)
+    ai_webhook_mode: Literal["test", "prod"] = "prod"
     ai_webhook_username: str | None = None
     ai_webhook_password: str | None = None
     ollama_base_url: str = "https://ollama.sti.ufpb.br/"
@@ -94,7 +106,7 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("n8n_inbound_webhook_url", "n8n_outbound_webhook_url", "ai_webhook_url_test", "ai_webhook_url_prod", mode="before")
+    @field_validator("n8n_inbound_webhook_url_test", "n8n_inbound_webhook_url_prod", "n8n_outbound_webhook_url_test", "n8n_outbound_webhook_url_prod", "ai_webhook_url_test", "ai_webhook_url_prod", mode="before")
     @classmethod
     def normalize_outbound_url(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
@@ -123,6 +135,24 @@ class Settings(BaseSettings):
         if normalized not in allowed:
             return "none"
         return normalized
+
+    @field_validator("n8n_webhook_mode", "ai_webhook_mode", mode="before")
+    @classmethod
+    def normalize_webhook_mode(cls, value: object) -> str:
+        allowed = {"test", "prod"}
+        normalized = str(value or "prod").strip().lower()
+        if normalized not in allowed:
+            return "prod"
+        return normalized
+
+    # Helper properties to get the correct webhook URL based on mode
+    @property
+    def n8n_inbound_webhook_url(self) -> AnyHttpUrl | None:
+        return self.n8n_inbound_webhook_url_test if self.n8n_webhook_mode == "test" else self.n8n_inbound_webhook_url_prod
+
+    @property
+    def n8n_outbound_webhook_url(self) -> AnyHttpUrl | None:
+        return self.n8n_outbound_webhook_url_test if self.n8n_webhook_mode == "test" else self.n8n_outbound_webhook_url_prod
 
 
 @lru_cache

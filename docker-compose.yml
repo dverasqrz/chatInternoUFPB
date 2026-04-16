@@ -13,7 +13,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres.rcfjdwtwfbrlfaosvvno:s4MFwYYUz5kY3B9W@aws-1-us-west-2.pooler.supabase.com:5432/postgres}
+      # SUPABASE fallback - comentado para usar banco interno
+      # DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres.rcfjdwtwfbrlfaosvvno:s4MFwYYUz5kY3B9W@aws-1-us-west-2.pooler.supabase.com:5432/postgres}
+      # BANCO INTERNO UFPB fallback
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://cau_ufpb:s4MFwYYUz5kY3B9W@automacoes_sti_ufpb_bd_whatsapp_interno_cau:5432/ufpb_chat?sslmode=disable}
       PYTHONPATH: /app
     ports:
       - "8000:8000"
@@ -27,4 +30,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
+    networks:
+      - ufpb_chat_network
+
+networks:
+  ufpb_chat_network:
+    driver: bridge
+    external: false
 

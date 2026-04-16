@@ -27,8 +27,10 @@ async def ask_ai(
     # Use cached runtime (loaded from DB at startup, updated when admin saves)
     runtime = get_cached_runtime() or get_or_create_runtime_settings(db)
     
-    # Select webhook based on environment
-    webhook_url = settings.ai_webhook_url_prod if settings.environment == "production" else settings.ai_webhook_url_test
+    # Select webhook based on AI_WEBHOOK_MODE (test or prod)
+    # If AI_WEBHOOK_MODE=test, uses AI_WEBHOOK_URL_TEST
+    # If AI_WEBHOOK_MODE=prod (default), uses AI_WEBHOOK_URL_PROD
+    webhook_url = settings.ai_webhook_url_test if settings.ai_webhook_mode == "test" else settings.ai_webhook_url_prod
     
     if not webhook_url:
         logger.error("AI webhook URL not configured in .env")
