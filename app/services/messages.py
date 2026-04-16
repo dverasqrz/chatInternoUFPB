@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 import secrets
@@ -609,6 +609,44 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     conversation.last_message_at = datetime.now(timezone.utc)
 
+    # Verificar se mensagem já existe (evitar duplicatas)
+    external_id = normalized.get("external_message_id")
+    if external_id:
+        existing_message = db.scalar(
+            select(Message).where(Message.external_message_id == external_id)
+        )
+        if existing_message:
+            # Mensagem já existe, não criar duplicata
+            # Apenas atualizar o status se necessário
+            if existing_message.delivery_status == DeliveryStatus.SENT and direction == MessageDirection.OUTBOUND:
+                existing_message.delivery_status = DeliveryStatus.DELIVERED
+                db.commit()
+                db.refresh(existing_message)
+            return existing_message
+
+    # Se for mensagem OUTBOUND (enviada pelo dashboard), verificar se existe mensagem
+    # recente sem external_message_id na mesma conversa (evita duplicata quando
+    # o webhook de confirmação chega com external_id mas a mensagem original foi criada sem)
+    if direction == MessageDirection.OUTBOUND and external_id:
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+        existing_outbound = db.scalar(
+            select(Message).where(
+                Message.conversation_id == conversation.id,
+                Message.direction == MessageDirection.OUTBOUND,
+                Message.external_message_id.is_(None),
+                Message.created_at >= recent_cutoff,
+                Message.text_content == normalized.get("text_content"),
+            )
+        )
+        if existing_outbound:
+            # Atualizar a mensagem existente com o external_id e marcar como DELIVERED
+            existing_outbound.external_message_id = external_id
+            existing_outbound.delivery_status = DeliveryStatus.DELIVERED
+            existing_outbound.raw_payload = normalized.get("raw_payload")
+            db.commit()
+            db.refresh(existing_outbound)
+            return existing_outbound
+
     sender_name = normalized.get("contact_name")
     delivery_status = DeliveryStatus.RECEIVED
     if direction == MessageDirection.OUTBOUND:
@@ -627,7 +665,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         media_caption=normalized["media_caption"],
         sender_name=sender_name,
         sender_phone=normalized["contact_phone"],
-        external_message_id=normalized["external_message_id"],
+        external_message_id=external_id,
         raw_payload=normalized["raw_payload"],
     )
     db.add(message)

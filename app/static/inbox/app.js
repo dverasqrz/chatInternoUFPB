@@ -2017,10 +2017,20 @@ async function downloadExportPdf() {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.detail || "Falha ao gerar PDF.");
   }
-  const conv = state.activeConversations && state.activeConversations.find(c => c.id === state.exportContext.conversationId);
-  const contactName = conv ? (conv.contact_name || conv.contact_phone || "Contato") : "Contato";
-  const safeName = contactName.replace(/\\s+/g, "_");
-  const filename = `${safeName}_${date}.pdf`;
+  // Extrair nome do arquivo do header Content-Disposition
+  const disposition = response.headers.get("Content-Disposition");
+  let filename = null;
+  if (disposition && disposition.includes("filename=")) {
+    const match = disposition.match(/filename="([^"]+)"/);
+    if (match) filename = match[1];
+  }
+  // Fallback: usar a mesma lógica do HTML se não conseguir extrair do header
+  if (!filename) {
+    const conv = state.activeConversations && state.activeConversations.find(c => c.id === state.exportContext.conversationId);
+    const contactName = conv ? (conv.contact_name || conv.contact_phone || "Contato") : "Contato";
+    const safeName = contactName.replace(/\\s+/g, "_");
+    filename = `${safeName}_${date}.pdf`;
+  }
   downloadBlob(await response.blob(), filename, "application/pdf");
 }
 

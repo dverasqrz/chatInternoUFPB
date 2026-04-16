@@ -1,5 +1,6 @@
 from datetime import date, time
 from io import BytesIO
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin, get_current_user_password_changed
 from app.db.session import get_db
 from app.models.conversation import Conversation
-from app.models.message import Message
+from app.models.message import Message, MessageType
 from app.models.user import User
 from app.schemas.conversation import ConversationRead, ConversationCreate
 from app.schemas.export import ConversationExportResponse
@@ -239,7 +240,8 @@ async def revoke_message(
     current_user: User = Depends(get_current_user_password_changed),
 ) -> MessageRead:
     import httpx
-    from app.services.runtime_settings import get_or_create_runtime_settings, get_outbound_webhook_url
+    from app.services.runtime_settings import get_or_create_runtime_settings
+    from app.services.webhook_utils import get_outbound_webhook_url
     from app.services.messages import _build_outbound_request_security
     
     conversation = db.get(Conversation, conversation_id)
@@ -268,10 +270,29 @@ async def revoke_message(
     outbound_webhook_url = get_outbound_webhook_url(runtime_settings)
     
     if outbound_webhook_url:
+        # Payload para revogação - N8N deve chamar:
+        # DELETE /chat/deleteMessageForEveryone/{instance}
+        # Headers: apikey: <sua_api_key>
+        # Body: {
+        #   "id": "<external_message_id>",
+        #   "remoteJid": "<remote_jid>",
+        #   "fromMe": true,
+        #   "participant": null  // opcional, apenas para grupos
+        # }
+        phone_clean = conversation.contact_phone.replace("+", "")
+        remote_jid = phone_clean + "@s.whatsapp.net"
+        
         outbound_payload = {
+            "action": "delete_for_everyone",
             "conversation_id": conversation.id,
             "message_id": message.id,
             "external_message_id": message.external_message_id,
+            "id": message.external_message_id,
+            "remote_jid": remote_jid,
+            "remoteJid": remote_jid,
+            "from_me": True,
+            "fromMe": True,
+            "participant": None,
             "to": conversation.contact_phone,
             "message_type": "revoke",
             "text": "Revogar mensagem",
@@ -279,6 +300,17 @@ async def revoke_message(
                 "id": current_user.id,
                 "name": current_user.name,
                 "email": current_user.email,
+            },
+            "evolution_endpoint": {
+                "method": "DELETE",
+                "path": "/chat/deleteMessageForEveryone/{instance}",
+                "headers": {"apikey": "<sua_api_key>"},
+                "body": {
+                    "id": message.external_message_id,
+                    "remoteJid": remote_jid,
+                    "fromMe": True,
+                    "participant": None,
+                },
             },
         }
 
@@ -415,10 +447,26 @@ def export_conversation_pdf(
         contact_profile=contact_profile,
     )
     pdf_bytes = build_pdf_bytes(export_data)
-    filename = (
-        f"conversa_{conversation_id}_{export_date.isoformat()}_{start_time.strftime('%H%M')}"
-        f"_{end_time.strftime('%H%M')}.pdf"
-    )
+    
+    # Sanitizar nome do contato para usar no filename
+    contact_name = conversation.contact_name
+    
+    if not contact_name or not contact_name.strip() or contact_name.strip() == '.':
+        safe_name = "Contato_sem_nome"
+    else:
+        # Remover caracteres inválidos para filename e substituir espaços por underscore
+        safe_name = re.sub(r'[^\w\s-]', '', contact_name).strip()
+        safe_name = re.sub(r'[-\s]+', '_', safe_name)
+        # Se após sanitização ficou vazio, usar fallback
+        if not safe_name:
+            safe_name = "Contato_sem_nome"
+        else:
+            # Limitar tamanho do nome
+            safe_name = safe_name[:50]
+    
+    # Formato: nome_dd_mm_yyyy.pdf
+    filename = f"{safe_name}_{export_date.strftime('%d_%m_%Y')}.pdf"
+    
     stream = BytesIO(pdf_bytes)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return StreamingResponse(stream, media_type="application/pdf", headers=headers)
