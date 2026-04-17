@@ -113,9 +113,9 @@
               <div class="ai-config-form">
                 <label for="configAiProvider">Provedor</label>
                 <select id="configAiProvider">
+                  <option value="groq" selected>Groq</option>
                   <option value="gemini">Google Gemini</option>
                   <option value="openai">OpenAI</option>
-                  <option value="groq">Groq</option>
                   <option value="ollama">Ollama (Local STI)</option>
                 </select>
                 
@@ -145,6 +145,12 @@
     <main class="main-pane">
       <header class="chat-header">
         <div style="display: flex; align-items: center; gap: 12px;">
+          <button id="mobileBackBtn" class="btn-icon mobile-only" title="Voltar para contatos">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+          </button>
           <div id="chatHeaderAvatar" class="conversation-avatar" style="background-color: #b4cfc6;">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" style="width: 28px; height: 28px;">
               <path
@@ -224,7 +230,8 @@
               </svg>
             </button>
           </div>
-          <div class="composer-actions">
+          <div class="composer-actions" style="gap: 8px; align-items: center;">
+            <button id="mobileComposerBackBtn" class="btn btn-outline mobile-only" type="button">Voltar</button>
             <button id="sendMessageBtn" class="btn">Enviar</button>
           </div>
         </div>

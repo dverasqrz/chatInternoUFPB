@@ -2674,3 +2674,295 @@ select:focus {
     padding: 10px 14px;
   }
 }
+
+/* Responsividade para dispositivos móveis (Mobile WhatsApp-like) */
+@media (max-width: 768px) {
+  .app-shell {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: block; /* Remove o display: flex para usar absolute positioning nas filhas */
+  }
+  
+  .left-pane {
+    width: 100% !important;
+    max-width: 100%;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    transition: transform 0.3s ease;
+  }
+
+  .main-pane {
+    width: 100%;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 5;
+    visibility: hidden;
+  }
+
+  .app-shell.mobile-chat-active .left-pane {
+    transform: translateX(-100%);
+  }
+
+  .app-shell.mobile-chat-active .main-pane {
+    z-index: 20;
+    visibility: visible;
+  }
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Input Area */
+.ai-consult-input {
+  padding: 16px 20px 20px;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.ai-input-textarea {
+  resize: none;
+  font-size: 0.95rem;
+  font-family: 'Manrope', sans-serif;
+  line-height: 1.5;
+  padding: 14px 18px;
+  border-radius: 14px;
+  border: 2px solid #e2e8f0;
+  background: #f8fafc;
+  color: #1e293b;
+  transition: all 0.2s ease;
+  min-height: 80px;
+  max-height: 150px;
+}
+
+.ai-input-textarea:focus {
+  outline: none;
+  border-color: #9bc8b8;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(155, 200, 184, 0.2);
+}
+
+.ai-input-textarea::placeholder {
+  color: #94a3b8;
+}
+
+/* Input Actions */
+.ai-input-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+/* Small modern action buttons */
+.btn-ai-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1.5px solid transparent;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  font-family: 'Manrope', sans-serif;
+  white-space: nowrap;
+}
+
+.btn-ai-secondary {
+  background: #fff;
+  color: #4a5568;
+  border-color: #cbd5e0;
+}
+
+.btn-ai-secondary:hover {
+  background: rgba(155, 200, 184, 0.1);
+  border-color: #9bc8b8;
+  color: #5a8a7a;
+}
+
+.btn-ai-primary {
+  background: linear-gradient(135deg, #9bc8b8 0%, #7fb8a8 100%);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 2px 8px rgba(155, 200, 184, 0.35);
+}
+
+.btn-ai-primary:hover {
+  background: linear-gradient(135deg, #8ab8a8 0%, #6fa898 100%);
+  box-shadow: 0 4px 12px rgba(155, 200, 184, 0.45);
+  transform: translateY(-1px);
+}
+
+.btn-ai-primary:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* ── Admin AI Config ──────────────────────────────────────────── */
+.admin-ai-section {
+  background: #ffffff;
+  border: 1px solid #edf2f7;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 16px;
+}
+
+.ai-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-config-form label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #4a5568;
+  margin-bottom: -4px;
+}
+
+.ai-config-form select, .ai-config-form input {
+  font-size: 0.85rem;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+/* ── AI Modal responsive layout ──────────────────────────────── */
+@media (max-width: 640px) {
+  .ai-consult-modal {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+
+  .ai-consult-header {
+    padding: 14px 16px;
+  }
+
+  .ai-consult-history {
+    padding: 16px;
+  }
+
+  .ai-consult-input {
+    padding: 12px 16px 16px;
+  }
+
+  .ai-input-textarea {
+    min-height: 70px;
+  }
+
+  .ai-message {
+    max-width: 90%;
+    padding: 10px 14px;
+  }
+}
+
+/* Responsividade para dispositivos móveis (Mobile WhatsApp-like) */
+@media (max-width: 768px) {
+  .app-shell {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    display: block; /* Remove o display: flex para usar absolute positioning nas filhas */
+  }
+  
+  .left-pane {
+    width: 100% !important;
+    max-width: 100%;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    transition: transform 0.3s ease;
+  }
+
+  .main-pane {
+    width: 100%;
+    height: 100vh;
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 5;
+    visibility: hidden;
+  }
+
+  .app-shell.mobile-chat-active .left-pane {
+    transform: translateX(-100%);
+  }
+
+  .app-shell.mobile-chat-active .main-pane {
+    z-index: 20;
+    visibility: visible;
+  }
+
+  .app-resizer {
+    display: none !important;
+  }
+
+  .mobile-only {
+    display: flex !important;
+  }
+
+  #exportCurrentDayBtn {
+    font-size: 0.65rem !important;
+    padding: 4px 8px !important;
+    height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box;
+  }
+
+  #messageCountBadge {
+    display: none !important;
+  }
+
+  #mobileBackBtn {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+
+  #mobileBackBtn svg {
+    width: 18px !important;
+    height: 18px !important;
+  }
+
+  #aiConsultOverlay {
+    padding: 0 !important;
+  }
+
+  .ai-consult-modal {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+  }
+
+  #chatSubtitle,
+  .conversation-phone {
+    font-size: 0.72rem !important;
+  }
+}
+
+/* Ocultar botão mobile por padrão em desktop */
+@media (min-width: 769px) {
+  .mobile-only {
+    display: none !important;
+  }
+}

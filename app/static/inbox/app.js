@@ -154,6 +154,8 @@ const els = {
   // AI Config (Admin)
   configAiProvider: document.getElementById("configAiProvider"),
   saveAiConfigBtn: document.getElementById("saveAiConfigBtn"),
+  mobileBackBtn: document.getElementById("mobileBackBtn"),
+  mobileComposerBackBtn: document.getElementById("mobileComposerBackBtn"),
 };
 
 function setSession(token, user) {
@@ -2361,6 +2363,10 @@ async function selectConversation(id) {
   state.hasMoreMessages[id] = true;
   state.isLoadingMessages = false;
   
+  if (id) {
+    document.querySelector(".app-shell").classList.add("mobile-chat-active");
+  }
+  
   await loadMessages({ forceRender: true });
 }
 
@@ -3102,6 +3108,18 @@ function bindEvents() {
   
   els.catalogBtn.addEventListener("click", loadCatalog);
   els.closeCatalogBtn.addEventListener("click", () => els.catalogOverlay.classList.add("hidden"));
+
+  if (els.mobileBackBtn) {
+    els.mobileBackBtn.addEventListener("click", () => {
+      document.querySelector(".app-shell").classList.remove("mobile-chat-active");
+    });
+  }
+
+  if (els.mobileComposerBackBtn) {
+    els.mobileComposerBackBtn.addEventListener("click", () => {
+      document.querySelector(".app-shell").classList.remove("mobile-chat-active");
+    });
+  }
 
   els.aiConsultBtn.addEventListener("click", openAiConsultModal);
   els.closeAiConsultBtn.addEventListener("click", closeAiConsultModal);
