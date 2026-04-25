@@ -344,8 +344,11 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     # Novo tratamento para delete
     if event == "messages.delete":
         msg_data = payload.get("data", {})
-        msg_id = msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
-        remote_jid = msg_data.get("remoteJid") or payload.get("remoteJid") or payload.get("key", {}).get("remoteJid")
+        msg_key = msg_data.get("key", {}) if isinstance(msg_data, dict) else {}
+        
+        msg_id = msg_key.get("id") or msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
+        remote_jid = msg_key.get("remoteJid") or msg_data.get("remoteJid") or payload.get("remoteJid") or payload.get("key", {}).get("remoteJid")
+        
         return {
             "event": event,
             "contact_phone": _normalize_phone(remote_jid),
