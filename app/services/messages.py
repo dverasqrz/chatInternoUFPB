@@ -314,8 +314,8 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         update = item.get("update") or {}
         
         remote_jid = key.get("remoteJid") or item.get("remoteJid") or payload.get("remoteJid")
-        external_id = key.get("id") or item.get("keyId") or item.get("messageId")
-        status_raw = update.get("status") or item.get("status")
+        external_id = key.get("id") or item.get("keyId") or item.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
+        status_raw = update.get("status") or item.get("status") or payload.get("status") or payload.get("update", {}).get("status")
         
         status_num = None
         if isinstance(status_raw, int):
@@ -344,10 +344,11 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     # Novo tratamento para delete
     if event == "messages.delete":
         msg_data = payload.get("data", {})
-        msg_id = msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId")
+        msg_id = msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
+        remote_jid = msg_data.get("remoteJid") or payload.get("remoteJid") or payload.get("key", {}).get("remoteJid")
         return {
             "event": event,
-            "contact_phone": _normalize_phone(msg_data.get("remoteJid")),
+            "contact_phone": _normalize_phone(remote_jid),
             "external_message_id": msg_id,
             "raw_payload": payload,
         }
