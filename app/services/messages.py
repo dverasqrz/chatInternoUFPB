@@ -292,11 +292,12 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         else:
             contact = {}
         
+        contact_id = contact.get("id") or contact.get("remoteJid") or payload.get("remoteJid") or payload.get("id", "")
         return {
             "event": event,
-            "contact_phone": _normalize_phone(contact.get("id", "")),
-            "contact_name": contact.get("name") or contact.get("pushName") or contact.get("verifiedName"),
-            "profile_picture_url": contact.get("profilePicUrl") or contact.get("profilePictureUrl"),
+            "contact_phone": _normalize_phone(contact_id),
+            "contact_name": contact.get("pushName") or contact.get("name") or payload.get("pushName") or payload.get("name", ""),
+            "profile_picture_url": contact.get("profilePicUrl") or contact.get("profilePictureUrl") or payload.get("profilePicUrl") or payload.get("profilePictureUrl"),
             "raw_payload": payload,
         }
 
