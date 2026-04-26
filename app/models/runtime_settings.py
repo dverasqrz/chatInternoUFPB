@@ -22,6 +22,7 @@ class RuntimeSettings(Base):
     inbound_webhook_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     
     # AI configuration
+    ai_agent_enabled: Mapped[bool] = mapped_column(default=False, server_default="false")
     ai_provider: Mapped[str] = mapped_column(String(50), nullable=False, default="gemini", server_default="gemini")
     ai_api_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     ai_base_url: Mapped[str | None] = mapped_column(String(500), nullable=True, default="https://ollama.sti.ufpb.br/")

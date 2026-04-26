@@ -69,6 +69,8 @@ class Settings(BaseSettings):
     # AI Webhook settings
     ai_webhook_url_test: AnyHttpUrl | None = None
     ai_webhook_url_prod: AnyHttpUrl | None = None
+    ai_agent_webhook_url_test: AnyHttpUrl | None = None
+    ai_agent_webhook_url_prod: AnyHttpUrl | None = None
     # Modo do webhook: "test" (usa AI_WEBHOOK_URL_TEST) ou "prod" (usa AI_WEBHOOK_URL_PROD)
     ai_webhook_mode: Literal["test", "prod"] = "prod"
     ai_webhook_username: str | None = None
@@ -106,7 +108,7 @@ class Settings(BaseSettings):
             return None
         return value
 
-    @field_validator("n8n_inbound_webhook_url_test", "n8n_inbound_webhook_url_prod", "n8n_outbound_webhook_url_test", "n8n_outbound_webhook_url_prod", "ai_webhook_url_test", "ai_webhook_url_prod", mode="before")
+    @field_validator("n8n_inbound_webhook_url_test", "n8n_inbound_webhook_url_prod", "n8n_outbound_webhook_url_test", "n8n_outbound_webhook_url_prod", "ai_webhook_url_test", "ai_webhook_url_prod", "ai_agent_webhook_url_test", "ai_agent_webhook_url_prod", mode="before")
     @classmethod
     def normalize_outbound_url(cls, value: object) -> object:
         if isinstance(value, str) and not value.strip():
@@ -153,6 +155,10 @@ class Settings(BaseSettings):
     @property
     def n8n_outbound_webhook_url(self) -> AnyHttpUrl | None:
         return self.n8n_outbound_webhook_url_test if self.n8n_webhook_mode == "test" else self.n8n_outbound_webhook_url_prod
+
+    @property
+    def ai_agent_webhook_url(self) -> AnyHttpUrl | None:
+        return self.ai_agent_webhook_url_test if self.ai_webhook_mode == "test" else self.ai_agent_webhook_url_prod
 
 
 @lru_cache

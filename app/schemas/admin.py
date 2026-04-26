@@ -43,6 +43,8 @@ class WebhookSettingsUpdate(BaseModel):
 
 class AISettingsRead(BaseModel):
     ai_provider: str
+    ai_agent_enabled: bool
 
 class AISettingsUpdate(BaseModel):
     ai_provider: AIProvider | None = None
+    ai_agent_enabled: bool | None = None

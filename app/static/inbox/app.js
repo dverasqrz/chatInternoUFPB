@@ -153,6 +153,7 @@ const els = {
   aiHistoryEmpty: document.getElementById("aiHistoryEmpty"),
   // AI Config (Admin)
   configAiProvider: document.getElementById("configAiProvider"),
+  configAiAgentEnabled: document.getElementById("configAiAgentEnabled"),
   saveAiConfigBtn: document.getElementById("saveAiConfigBtn"),
   mobileBackBtn: document.getElementById("mobileBackBtn"),
   mobileComposerBackBtn: document.getElementById("mobileComposerBackBtn"),
@@ -2514,6 +2515,7 @@ async function initializeInbox() {
   
   if (state.user?.is_admin) {
     await loadAdminUsers();
+    await loadAiSettings();
   }
   await loadConversations(false);
   
@@ -2774,6 +2776,9 @@ async function loadAiSettings() {
   try {
     const settings = await apiRequest("/admin/ai-settings");
     els.configAiProvider.value = settings.ai_provider;
+    if (els.configAiAgentEnabled) {
+      els.configAiAgentEnabled.checked = settings.ai_agent_enabled;
+    }
   } catch (error) {
     console.error("Erro ao carregar configurações de IA:", error);
   }
@@ -2782,6 +2787,7 @@ async function loadAiSettings() {
 async function saveAiSettings() {
   const payload = {
     ai_provider: els.configAiProvider.value,
+    ai_agent_enabled: els.configAiAgentEnabled ? els.configAiAgentEnabled.checked : false,
   };
 
   try {

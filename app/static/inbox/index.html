@@ -119,8 +119,19 @@
                   <option value="ollama">Ollama (Local STI)</option>
                 </select>
                 
-                <div class="modal-actions" style="margin-top: 10px; justify-content: flex-end;">
-                  <button id="saveAiConfigBtn" class="btn btn-small" type="button">Salvar Configuração IA</button>
+                <div class="modern-toggle-container">
+                  <div class="modern-toggle-info">
+                    <h5 class="modern-toggle-title">Agente de IA Automático (n8n)</h5>
+                    <p class="modern-toggle-desc">Ativa o repasse imediato das mensagens para o fluxo de IA no n8n. Desative para assumir controle manual.</p>
+                  </div>
+                  <label class="modern-switch">
+                    <input id="configAiAgentEnabled" type="checkbox">
+                    <span class="modern-slider"></span>
+                  </label>
+                </div>
+                
+                <div class="modal-actions" style="margin-top: 16px; justify-content: flex-end;">
+                  <button id="saveAiConfigBtn" class="btn" type="button" style="width: 100%;">Salvar Configurações</button>
                 </div>
               </div>
             </div>

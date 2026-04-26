@@ -171,6 +171,7 @@ def get_ai_settings(
     runtime = get_or_create_runtime_settings(db)
     return AISettingsRead(
         ai_provider=runtime.ai_provider,
+        ai_agent_enabled=runtime.ai_agent_enabled,
     )
 
 
@@ -193,6 +194,9 @@ def update_ai_settings(
     if payload.ai_provider is not None:
         runtime.ai_provider = payload.ai_provider
 
+    if payload.ai_agent_enabled is not None:
+        runtime.ai_agent_enabled = payload.ai_agent_enabled
+
     db.commit()
     db.refresh(runtime)
 
@@ -202,6 +206,7 @@ def update_ai_settings(
     invalidate_runtime_cache()
     return AISettingsRead(
         ai_provider=runtime.ai_provider,
+        ai_agent_enabled=runtime.ai_agent_enabled,
     )
 
 

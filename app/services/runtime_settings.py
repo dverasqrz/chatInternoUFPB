@@ -53,6 +53,15 @@ def get_or_create_runtime_settings(db: Session) -> RuntimeSettings:
     """
     global _runtime_cache
 
+    # Ensure ai_agent_enabled exists (for dynamic migration)
+    from sqlalchemy import text
+    try:
+        db.execute(text("ALTER TABLE runtime_settings ADD COLUMN IF NOT EXISTS ai_agent_enabled BOOLEAN NOT NULL DEFAULT FALSE;"))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"Failed to add ai_agent_enabled column: {e}")
+
     # Return from cache when available
     if _runtime_cache is not None:
         return _runtime_cache
