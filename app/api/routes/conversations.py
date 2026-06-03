@@ -420,14 +420,17 @@ async def edit_message(
                 "email": current_user.email,
             },
             "evolution_endpoint": {
-                "method": "PUT",
+                "method": "POST",
                 "path": "/chat/updateMessage/{instance}",
                 "headers": {"apikey": "<sua_api_key>"},
                 "body": {
-                    "id": message.external_message_id,
-                    "remoteJid": remote_jid,
-                    "fromMe": True,
-                    "message": {"conversation": data.text_content},
+                    "number": phone_clean,
+                    "text": data.text_content,
+                    "key": {
+                        "remoteJid": remote_jid,
+                        "fromMe": True,
+                        "id": message.external_message_id,
+                    },
                 },
             },
         }
@@ -446,6 +449,34 @@ async def edit_message(
             pass  # Falha no envio não impede a edição local
 
     return MessageRead.model_validate(message)
+
+
+@router.post("/{conversation_id}/messages/read")
+def mark_messages_as_read(
+    conversation_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user_password_changed),
+) -> dict:
+    conversation = db.get(Conversation, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada.")
+
+    messages = db.scalars(
+        select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.is_read == False,
+        )
+    ).all()
+
+    count = 0
+    for msg in messages:
+        msg.is_read = True
+        count += 1
+
+    if count:
+        db.commit()
+
+    return {"status": "ok", "marked_count": count}
 
 
 @router.delete(

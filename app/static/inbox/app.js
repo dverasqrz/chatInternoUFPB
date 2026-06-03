@@ -2074,8 +2074,10 @@ function renderMessages(messages, options = {}) {
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
         const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
-        return `<article class="message-item ${klass} message-new" data-id="${message.id}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
+        const actionsHtml = (editBtn || revokeBtn) ? `<span class="msg-actions">${editBtn}${revokeBtn}</span>` : '';
+        const unreadClass = (message.direction === "inbound" && !message.is_read) ? ' message-unread' : '';
+        return `<article class="message-item ${klass}${unreadClass} message-new" data-id="${message.id}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${actionsHtml}</div>
             <div class="message-body">${buildMessageBody(message)}</div>
           </article>`;
       })
@@ -2112,8 +2114,10 @@ function renderMessages(messages, options = {}) {
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
         const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
-        return `<article class="message-item ${klass}" data-id="${message.id}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
+        const actionsHtml = (editBtn || revokeBtn) ? `<span class="msg-actions">${editBtn}${revokeBtn}</span>` : '';
+        const unreadClass = (message.direction === "inbound" && !message.is_read) ? ' message-unread' : '';
+        return `<article class="message-item ${klass}${unreadClass}" data-id="${message.id}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${actionsHtml}</div>
             <div class="message-body">${buildMessageBody(message)}</div>
           </article>`;
       })
@@ -2139,8 +2143,10 @@ function renderMessages(messages, options = {}) {
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
         const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
-        return `<article class="message-item ${klass}" data-id="${message.id}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
+        const actionsHtml = (editBtn || revokeBtn) ? `<span class="msg-actions">${editBtn}${revokeBtn}</span>` : '';
+        const unreadClass = (message.direction === "inbound" && !message.is_read) ? ' message-unread' : '';
+        return `<article class="message-item ${klass}${unreadClass}" data-id="${message.id}">
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${actionsHtml}</div>
             <div class="message-body">${buildMessageBody(message)}</div>
           </article>`;
       })
@@ -2377,6 +2383,11 @@ async function selectConversation(id) {
   }
   
   await loadMessages({ forceRender: true });
+
+  // Marcar mensagens como lidas (compartilhado entre atendentes)
+  if (id) {
+    apiRequest(`/conversations/${id}/messages/read`, { method: "POST" }).catch(() => {});
+  }
 }
 
 async function sendMessage() {

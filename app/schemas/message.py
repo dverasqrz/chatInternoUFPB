@@ -39,6 +39,7 @@ class MessageRead(BaseModel):
     created_at: datetime
     updated_at: datetime | None = None
     is_edited: bool = False
+    is_read: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -111,3 +111,11 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS is_read BOOLEAN NOT NULL DEFAULT false;
+                """
+            )
+        )
