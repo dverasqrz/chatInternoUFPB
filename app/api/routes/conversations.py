@@ -348,13 +348,18 @@ async def revoke_message(
     "/{conversation_id}/messages/{message_id}",
     response_model=MessageRead,
 )
-def edit_message(
+async def edit_message(
     conversation_id: int,
     message_id: int,
     data: MessageEditRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_password_changed),
 ) -> MessageRead:
+    import httpx
+    from app.services.runtime_settings import get_or_create_runtime_settings
+    from app.services.webhook_utils import get_outbound_webhook_url
+    from app.services.messages import _build_outbound_request_security
+
     conversation = db.get(Conversation, conversation_id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada.")
@@ -387,6 +392,58 @@ def edit_message(
     message.is_edited = True
     db.commit()
     db.refresh(message)
+
+    # Enviar edição para n8n/EvolutionAPI se houver webhook configurado
+    runtime_settings = get_or_create_runtime_settings(db)
+    outbound_webhook_url = get_outbound_webhook_url(runtime_settings)
+
+    if outbound_webhook_url and message.external_message_id:
+        phone_clean = conversation.contact_phone.replace("+", "")
+        remote_jid = phone_clean + "@s.whatsapp.net"
+
+        outbound_payload = {
+            "action": "edit_message",
+            "conversation_id": conversation.id,
+            "message_id": message.id,
+            "external_message_id": message.external_message_id,
+            "id": message.external_message_id,
+            "remote_jid": remote_jid,
+            "remoteJid": remote_jid,
+            "from_me": True,
+            "fromMe": True,
+            "to": conversation.contact_phone,
+            "message_type": "edit",
+            "text": data.text_content,
+            "attendant": {
+                "id": current_user.id,
+                "name": current_user.name,
+                "email": current_user.email,
+            },
+            "evolution_endpoint": {
+                "method": "PUT",
+                "path": "/chat/updateMessage/{instance}",
+                "headers": {"apikey": "<sua_api_key>"},
+                "body": {
+                    "id": message.external_message_id,
+                    "remoteJid": remote_jid,
+                    "fromMe": True,
+                    "message": {"conversation": data.text_content},
+                },
+            },
+        }
+
+        try:
+            outbound_headers, outbound_auth = _build_outbound_request_security(runtime_settings)
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    outbound_webhook_url,
+                    json=outbound_payload,
+                    headers=outbound_headers or None,
+                    auth=outbound_auth,
+                )
+                response.raise_for_status()
+        except httpx.HTTPError:
+            pass  # Falha no envio não impede a edição local
 
     return MessageRead.model_validate(message)
 

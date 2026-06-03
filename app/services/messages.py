@@ -316,6 +316,21 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         
         remote_jid = key.get("remoteJid") or item.get("remoteJid") or payload.get("remoteJid")
         external_id = key.get("id") or item.get("keyId") or item.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
+
+        # Detectar se é uma edição de mensagem (update.message.editedMessage)
+        edited_msg = update.get("message", {}).get("editedMessage", {})
+        if isinstance(edited_msg, dict) and edited_msg:
+            inner = edited_msg.get("message", edited_msg)
+            new_text = inner.get("conversation") or inner.get("extendedTextMessage", {}).get("text") or inner.get("text") or inner.get("body")
+            if new_text:
+                return {
+                    "event": "messages.edited",
+                    "contact_phone": _normalize_phone(remote_jid),
+                    "external_message_id": external_id,
+                    "edited_text": new_text,
+                    "raw_payload": payload,
+                }
+
         status_raw = update.get("status") or item.get("status") or payload.get("status") or payload.get("update", {}).get("status")
         
         status_num = None
@@ -354,6 +369,33 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "event": event,
             "contact_phone": _normalize_phone(remote_jid),
             "external_message_id": msg_id,
+            "raw_payload": payload,
+        }
+
+    # Tratamento para messages.edited (edição de mensagem)
+    if event in ("messages.edited", "messages.edit"):
+        data_obj = payload.get("data", {})
+        if isinstance(data_obj, dict):
+            key = data_obj.get("key", {})
+            edited_msg = data_obj.get("editedMessage", {})
+            # editedMessage pode ter "message" (nested) ou "conversation" (direto)
+            if isinstance(edited_msg, dict):
+                inner_msg = edited_msg.get("message", edited_msg)
+                new_text = inner_msg.get("conversation") or inner_msg.get("extendedTextMessage", {}).get("text") or inner_msg.get("text") or inner_msg.get("body")
+            else:
+                new_text = None
+        else:
+            key = {}
+            new_text = None
+
+        msg_id = key.get("id") or data_obj.get("messageId") or data_obj.get("keyId") or payload.get("id")
+        remote_jid = key.get("remoteJid") or data_obj.get("remoteJid") or payload.get("remoteJid")
+
+        return {
+            "event": event,
+            "contact_phone": _normalize_phone(remote_jid),
+            "external_message_id": msg_id,
+            "edited_text": new_text,
             "raw_payload": payload,
         }
 
@@ -554,6 +596,20 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 message.media_url = None
                 message.media_mime_type = None
                 # Se for imagem ou outro tipo de mídia, mudamos para texto para ficar mais fácil
+                message.message_type = MessageType.TEXT
+                db.commit()
+                db.refresh(message)
+                return message
+        return None
+
+    if event in ("messages.edited", "messages.edit"):
+        msg_id = normalized.get("external_message_id")
+        new_text = normalized.get("edited_text")
+        if msg_id and new_text:
+            message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
+            if message:
+                message.text_content = new_text
+                message.is_edited = True
                 message.message_type = MessageType.TEXT
                 db.commit()
                 db.refresh(message)
