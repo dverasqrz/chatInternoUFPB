@@ -573,6 +573,35 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     contact_phone = normalized["contact_phone"]
     direction = normalized.get("direction", MessageDirection.INBOUND)
+    event = normalized.get("event")
+
+    # Para eventos de edição/deleção, buscar por external_message_id primeiro
+    # (LID pode não corresponder ao telefone da conversa)
+    if event in ("messages.edited", "messages.edit", "messages.delete"):
+        msg_id = normalized.get("external_message_id")
+        if msg_id:
+            message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
+            if message and event in ("messages.edited", "messages.edit"):
+                new_text = normalized.get("edited_text")
+                if new_text:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.info(f"[EDIT] Mensagem encontrada id={message.id}, atualizando texto")
+                    message.text_content = new_text
+                    message.is_edited = True
+                    message.message_type = MessageType.TEXT
+                    db.commit()
+                    db.refresh(message)
+                    return message
+            elif message and event == "messages.delete":
+                message.text_content = "🚫 Essa mensagem foi apagada"
+                message.media_url = None
+                message.media_mime_type = None
+                message.message_type = MessageType.TEXT
+                db.commit()
+                db.refresh(message)
+                return message
+        return None
     
     # Ignore webhooks where the contact phone is the UFPB system bot itself
     if contact_phone == "+558332167336":
@@ -583,8 +612,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     if sender_phone and contact_phone == sender_phone:
         return None
 
-    # Tratamento especial de Eventos Atualização e Deleção
-    event = normalized.get("event")
+    # Tratamento especial de Eventos Atualização (status)
     if event == "messages.update":
         msg_id = normalized.get("external_message_id")
         status_num = normalized.get("status")
@@ -605,41 +633,6 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 db.commit()
                 db.refresh(message)
                 return message
-        return None
-
-    if event == "messages.delete":
-        msg_id = normalized.get("external_message_id")
-        if msg_id:
-            message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
-            if message:
-                message.text_content = "🚫 Essa mensagem foi apagada"
-                message.media_url = None
-                message.media_mime_type = None
-                # Se for imagem ou outro tipo de mídia, mudamos para texto para ficar mais fácil
-                message.message_type = MessageType.TEXT
-                db.commit()
-                db.refresh(message)
-                return message
-        return None
-
-    if event in ("messages.edited", "messages.edit"):
-        import logging
-        logger = logging.getLogger(__name__)
-        msg_id = normalized.get("external_message_id")
-        new_text = normalized.get("edited_text")
-        logger.info(f"[EDIT] event={event}, external_id={msg_id}, new_text={new_text!r}, phone={normalized.get('contact_phone')}")
-        if msg_id and new_text:
-            message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
-            if message:
-                logger.info(f"[EDIT] Mensagem encontrada id={message.id}, atualizando texto")
-                message.text_content = new_text
-                message.is_edited = True
-                message.message_type = MessageType.TEXT
-                db.commit()
-                db.refresh(message)
-                return message
-            else:
-                logger.warning(f"[EDIT] Nenhuma mensagem encontrada com external_message_id={msg_id}")
         return None
 
     contact_name = normalized.get("contact_name")
