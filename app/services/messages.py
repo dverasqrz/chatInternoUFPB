@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 from datetime import datetime, timedelta, timezone
+import logging
 from pathlib import Path
 import re
 import secrets
@@ -21,6 +22,8 @@ from app.models.user import User
 from app.schemas.message import OutboundMessageCreate
 from app.services.runtime_settings import get_or_create_runtime_settings
 from app.services.webhook_utils import get_outbound_webhook_url
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_phone(raw: Any) -> str | None:
@@ -208,383 +211,6 @@ def _persist_inbound_media_from_base64(
         if server_url and apikey and instance and message_id:
             try:
                 import httpx
-                import logging
-                logger = logging.getLogger(__name__)
-                
-                download_url = f"{str(server_url).rstrip('/')}/chat/getBase64FromMediaMessage/{instance}"
-                with httpx.Client(timeout=30.0) as client:
-                    resp = client.post(
-                        download_url,
-                        json={"message": {"key": {"id": message_id}}},
-                        headers={"apikey": str(apikey)}
-                    )
-                    if resp.status_code in (200, 201):
-                        data = resp.json()
-                        fetched_base64 = data.get("base64")
-                        if fetched_base64:
-                            media_bytes = _decode_base64_media(fetched_base64)
-                    else:
-                        logger.error(f"Evolution API HTTP {resp.status_code}: {resp.text}")
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f"Failed to fetch base64 from EvolutionAPI: {e}")
-
-    if not media_bytes:
-        return None
-    if len(media_bytes) > 25 * 1024 * 1024:
-        return None
-
-    settings = get_settings()
-    storage_path = settings.media_storage_path
-    storage_path.mkdir(parents=True, exist_ok=True)
-
-    extension = _extension_for_media(message_type, mime_type)
-    filename = f"{secrets.token_hex(16)}{extension}"
-    destination = storage_path / filename
-    Path(destination).write_bytes(media_bytes)
-    
-    # TESTE: Sem conversão de vídeos - usa arquivo bruto direto
-    if message_type == MessageType.VIDEO:
-        try:
-            import logging
-            logger = logging.getLogger(__name__)
-            
-            logger.info(f"TESTE SEM CONVERSÃO: Processando vídeo bruto: {filename}")
-            logger.info(f"MIME type: {mime_type}")
-            logger.info(f"File size: {len(media_bytes)} bytes")
-            
-            # Sem conversão - retorna URL direta do arquivo bruto
-            return f"/uploads/{filename}"
-            
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error processing video: {e}")
-            # Use original file if there's any error
-    
-    return f"/uploads/{filename}"
-
-
-def _build_outbound_request_security(runtime_settings: RuntimeSettings) -> tuple[dict[str, str], tuple[str, str] | None]:
-    headers: dict[str, str] = {}
-    auth: tuple[str, str] | None = None
-
-    auth_type = (runtime_settings.outbound_auth_type or "none").lower()
-    if auth_type == "header" and runtime_settings.outbound_auth_header_name and runtime_settings.outbound_auth_header_value:
-        headers[runtime_settings.outbound_auth_header_name] = runtime_settings.outbound_auth_header_value
-    elif auth_type == "basic" and runtime_settings.outbound_auth_basic_username and runtime_settings.outbound_auth_basic_password:
-        auth = (runtime_settings.outbound_auth_basic_username, runtime_settings.outbound_auth_basic_password)
-    elif auth_type == "jwt" and runtime_settings.outbound_auth_jwt_token:
-        headers["Authorization"] = f"Bearer {runtime_settings.outbound_auth_jwt_token}"
-
-    return headers, auth
-
-
-def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    event = payload.get("event")
-    if event in ("contacts.upsert", "contacts.update"):
-        data = payload.get("data", [])
-        if isinstance(data, list) and len(data) > 0:
-            contact = data[0]
-        elif isinstance(data, dict):
-            contact = data
-        else:
-            contact = {}
-        
-        contact_id = contact.get("id") or contact.get("remoteJid") or payload.get("remoteJid") or payload.get("id", "")
-        return {
-            "event": event,
-            "contact_phone": _normalize_phone(contact_id),
-            "contact_name": contact.get("pushName") or contact.get("name") or payload.get("pushName") or payload.get("name", ""),
-            "profile_picture_url": contact.get("profilePicUrl") or contact.get("profilePictureUrl") or payload.get("profilePicUrl") or payload.get("profilePictureUrl"),
-            "raw_payload": payload,
-        }
-
-    # Novo tratamento para update
-    if event == "messages.update":
-        data_list = payload.get("data", [])
-        if isinstance(data_list, list) and len(data_list) > 0:
-            item = data_list[0]
-        elif isinstance(data_list, dict):
-            item = data_list
-        else:
-            item = {}
-        
-        key = item.get("key") or {}
-        update = item.get("update") or {}
-        
-        # Extrair remoteJid - suporta LID e formato normal
-        remote_jid = key.get("remoteJid") or item.get("remoteJid") or payload.get("remoteJid")
-        remote_jid_alt = item.get("remoteJidAlt") or payload.get("remoteJidAlt")
-        
-        # external_message_id - tenta keyId, id, messageId
-        external_id = key.get("id") or item.get("keyId") or item.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
-
-        # Detectar se é uma edição de mensagem
-        # Estrutura real: data.message.editedMessage.message.conversation
-        msg_obj = item.get("message") or {}
-        edited_msg = msg_obj.get("editedMessage") or {}
-        if isinstance(edited_msg, dict) and edited_msg:
-            inner = edited_msg.get("message", edited_msg)
-            new_text = inner.get("conversation") or inner.get("extendedTextMessage", {}).get("text") or inner.get("text") or inner.get("body")
-            if new_text:
-                # Resolver telefone: remoteJidAlt > sender (quando remoteJid é LID)
-                phone_to_use = remote_jid
-                if remote_jid and "@lid" in str(remote_jid):
-                    if remote_jid_alt:
-                        phone_to_use = remote_jid_alt
-                    else:
-                        # Fallback: usar sender que contém o telefone real
-                        phone_to_use = payload.get("sender") or remote_jid
-                return {
-                    "event": "messages.edited",
-                    "contact_phone": _normalize_phone(phone_to_use),
-                    "external_message_id": external_id,
-                    "edited_text": new_text,
-                    "raw_payload": payload,
-                }
-
-        status_raw = update.get("status") or item.get("status") or payload.get("status") or payload.get("update", {}).get("status")
-        
-        status_num = None
-        if isinstance(status_raw, int):
-            status_num = status_raw
-        elif isinstance(status_raw, str):
-            status_str = status_raw.upper()
-            if status_str in ("ERROR", "FAILED"):
-                status_num = 0
-            elif status_str in ("PENDING", "QUEUED"):
-                status_num = 1
-            elif status_str in ("SERVER_ACK", "SENT"):
-                status_num = 2
-            elif status_str in ("DELIVERY_ACK", "DELIVERED"):
-                status_num = 3
-            elif status_str in ("READ", "PLAYED"):
-                status_num = 4
-        
-        return {
-            "event": event,
-            "contact_phone": _normalize_phone(remote_jid),
-            "external_message_id": external_id,
-            "status": status_num,
-            "raw_payload": payload,
-        }
-
-    # Novo tratamento para delete
-    if event == "messages.delete":
-        msg_data = payload.get("data", {})
-        msg_key = msg_data.get("key", {}) if isinstance(msg_data, dict) else {}
-        
-        msg_id = msg_key.get("id") or msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
-        remote_jid = msg_key.get("remoteJid") or msg_data.get("remoteJid") or payload.get("remoteJid") or payload.get("key", {}).get("remoteJid")
-        remote_jid_alt = msg_data.get("remoteJidAlt") or payload.get("remoteJidAlt")
-        
-        # Usar remoteJidAlt se remoteJid for LID
-        phone_to_use = remote_jid
-        if remote_jid and "@lid" in str(remote_jid) and remote_jid_alt:
-            phone_to_use = remote_jid_alt
-        
-        return {
-            "event": event,
-            "contact_phone": _normalize_phone(phone_to_use),
-            "external_message_id": msg_id,
-            "raw_payload": payload,
-        }
-
-    # Tratamento para messages.edited (edição de mensagem)
-    if event in ("messages.edited", "messages.edit"):
-        data_obj = payload.get("data", {})
-        if isinstance(data_obj, dict):
-            key = data_obj.get("key", {})
-            edited_msg = data_obj.get("editedMessage", {})
-            # editedMessage pode ter "message" (nested) ou "conversation" (direto)
-            if isinstance(edited_msg, dict):
-                inner_msg = edited_msg.get("message", edited_msg)
-                new_text = inner_msg.get("conversation") or inner_msg.get("extendedTextMessage", {}).get("text") or inner_msg.get("text") or inner_msg.get("body")
-            else:
-                new_text = None
-        else:
-            key = {}
-            new_text = None
-
-        msg_id = key.get("id") or data_obj.get("messageId") or data_obj.get("keyId") or payload.get("id")
-        remote_jid = key.get("remoteJid") or data_obj.get("remoteJid") or payload.get("remoteJid")
-
-        return {
-            "event": event,
-            "contact_phone": _normalize_phone(remote_jid),
-            "external_message_id": msg_id,
-            "edited_text": new_text,
-            "raw_payload": payload,
-        }
-
-    body = _get_nested_dict(payload.get("body"))
-    root = _get_nested_dict(payload.get("data")) or _get_nested_dict(body.get("data")) or body or payload
-    sender = _get_nested_dict(root.get("sender"))
-    message = _get_nested_dict(root.get("message"))
-    key = _get_nested_dict(root.get("key"))
-    extended_text_message = _get_nested_dict(message.get("extendedTextMessage"))
-    image_message = _get_nested_dict(message.get("imageMessage"))
-    audio_message = _get_nested_dict(message.get("audioMessage"))
-    video_message = _get_nested_dict(message.get("videoMessage"))
-    document_message = _get_nested_dict(message.get("documentMessage"))
-
-    from_me = bool(key.get("fromMe") or root.get("fromMe"))
-    raw_sender = _first_text_value(
-        sender.get("phone"), sender.get("id"), root.get("participant"), key.get("participant")
-    )
-    if _normalize_phone(raw_sender) == "+558332167336":
-        from_me = True
-
-    direction = MessageDirection.OUTBOUND if from_me else MessageDirection.INBOUND
-
-    contact_phone = _normalize_phone(
-        _first_text_value(
-            key.get("remoteJid"),
-            root.get("remoteJid"),
-            payload.get("remoteJid"),
-            root.get("phone"),
-            root.get("from"),
-            sender.get("phone"),
-            sender.get("id"),
-            key.get("participant"),
-            message.get("from"),
-            payload.get("phone"),
-            payload.get("from"),
-        )
-    )
-    if not contact_phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Webhook sem telefone do contato.",
-        )
-
-    media_url = _first_text_value(
-        root.get("mediaUrl"),
-        root.get("media_url"),
-        root.get("url"),
-        message.get("url"),
-        message.get("mediaUrl"),
-        message.get("downloadUrl"),
-        image_message.get("url"),
-        image_message.get("directPath"),
-        audio_message.get("url"),
-        audio_message.get("directPath"),
-        video_message.get("url"),
-        video_message.get("directPath"),
-        document_message.get("url"),
-        document_message.get("directPath"),
-    )
-    media_url = _normalize_media_url(media_url)
-    text_content = _first_text_value(
-        root.get("text"),
-        root.get("message"),
-        message.get("conversation"),
-        extended_text_message.get("text"),
-        message.get("text"),
-        message.get("body"),
-        message.get("caption"),
-        image_message.get("caption"),
-        video_message.get("caption"),
-        payload.get("message"),
-    )
-    message_type = _extract_type(
-        _first_text_value(root.get("type"), root.get("messageType"), message.get("type"), payload.get("type")),
-        has_media=bool(media_url),
-        message=message,
-    )
-    if message_type == MessageType.TEXT and not text_content:
-        text_content = "[mensagem sem texto]"
-
-    contact_name = _first_text_value(
-        root.get("name"),
-        root.get("pushName"),
-        root.get("senderName"),
-        sender.get("name"),
-        payload.get("name"),
-    )
-    external_message_id = _first_text_value(
-        root.get("id"),
-        root.get("messageId"),
-        key.get("id"),
-        payload.get("id"),
-    )
-    media_mime_type = _first_text_value(
-        root.get("mimetype"),
-        root.get("mimeType"),
-        message.get("mimetype"),
-        message.get("mimeType"),
-        image_message.get("mimetype"),
-        image_message.get("mimeType"),
-        audio_message.get("mimetype"),
-        audio_message.get("mimeType"),
-        video_message.get("mimetype"),
-        video_message.get("mimeType"),
-        document_message.get("mimetype"),
-        document_message.get("mimeType"),
-    )
-    media_mime_type = _normalize_mime_type(media_mime_type)
-    media_caption = _first_text_value(root.get("caption"), message.get("caption"))
-
-    persisted_media_url = _persist_inbound_media_from_base64(
-        payload=payload,
-        message_type=message_type,
-        mime_type=media_mime_type,
-    )
-    if persisted_media_url:
-        media_url = persisted_media_url
-
-    return {
-        "event": event,
-        "contact_phone": contact_phone,
-        "contact_name": contact_name,
-        "direction": direction,
-        "message_type": message_type,
-        "text_content": text_content,
-        "media_url": media_url,
-        "media_mime_type": media_mime_type,
-        "media_caption": media_caption,
-        "external_message_id": external_message_id,
-        "raw_payload": payload,
-    }
-
-
-def _get_or_create_conversation(db: Session, contact_phone: str, contact_name: str | None) -> Conversation:
-    conversation = db.scalar(
-        select(Conversation).where(Conversation.contact_phone == contact_phone)
-    )
-    if conversation:
-        if contact_name and conversation.contact_name != contact_name:
-            conversation.contact_name = contact_name
-        return conversation
-
-    conversation = Conversation(contact_phone=contact_phone, contact_name=contact_name)
-    db.add(conversation)
-    db.flush()
-    return conversation
-
-
-def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation | Message | None:
-    normalized = normalize_webhook_payload(payload)
-    
-    if not normalized.get("contact_phone"):
-        raise HTTPException(status_code=400, detail="Webhook sem telefone do contato.")
-
-    contact_phone = normalized["contact_phone"]
-    direction = normalized.get("direction", MessageDirection.INBOUND)
-    event = normalized.get("event")
-
-    # Para eventos de edição/deleção, buscar por external_message_id primeiro
-    # (LID pode não corresponder ao telefone da conversa)
-    if event in ("messages.edited", "messages.edit", "messages.delete"):
-        import logging
-        logger = logging.getLogger(__name__)
-        msg_id = normalized.get("external_message_id")
-        new_text = normalized.get("edited_text") if event != "messages.delete" else None
-        
-        logger.info(f"[EDIT-IN] event={event}, external_id={msg_id}, phone={contact_phone}, new_text={new_text!r}")
-        
         if msg_id:
             # Buscar por external_message_id (WhatsApp key ID)
             message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
@@ -598,7 +224,6 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
             
             # Fallback 2: buscar na conversa por texto similar nos ultimos 5 min
             if not message and contact_phone:
-                from datetime import datetime, timedelta, timezone
                 five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
                 conversation = db.scalar(select(Conversation).where(Conversation.contact_phone == contact_phone))
                 if conversation:
@@ -692,7 +317,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
             try:
                 import httpx
                 import logging
-                logger = logging.getLogger(__name__)
+                pass  # logger already defined at module level
                 
                 download_url = f"{str(server_url).rstrip('/')}/chat/fetchProfilePictureUrl/{instance}"
                 clean_phone = contact_phone.replace("+", "")
@@ -714,7 +339,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                         logger.error(f"Evolution API fetchProfile fail: {resp.status_code}")
             except Exception as e:
                 import logging
-                logger = logging.getLogger(__name__)
+                pass  # logger already defined at module level
                 logger.error(f"Erro ao tentar cachear foto de perfil: {e}")
     
     if event in ("contacts.upsert", "contacts.update"):
