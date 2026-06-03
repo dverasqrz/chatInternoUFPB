@@ -95,3 +95,19 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS is_edited BOOLEAN NOT NULL DEFAULT false;
+                """
+            )
+        )

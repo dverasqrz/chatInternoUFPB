@@ -37,6 +37,8 @@ class MessageRead(BaseModel):
     external_message_id: str | None
     error_message: str | None
     created_at: datetime
+    updated_at: datetime | None = None
+    is_edited: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -74,3 +76,7 @@ class MessageSearchResult(BaseModel):
     text_content: str | None = None
     created_at: datetime
     direction: MessageDirection
+
+
+class MessageEditRequest(BaseModel):
+    text_content: str = Field(min_length=1, max_length=6000)

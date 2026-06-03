@@ -2315,6 +2315,75 @@ select:focus {
 .revoke-msg-btn:hover {
     opacity: 1;
 }
+.edit-msg-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    margin-left: 8px;
+    font-size: 0.9em;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+.edit-msg-btn:hover {
+    opacity: 1;
+}
+.msg-edited {
+    font-size: 0.75em;
+    font-style: italic;
+    color: #888;
+    margin-left: 4px;
+}
+.edit-message-area {
+    padding: 6px 0;
+}
+.edit-message-input {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px;
+    border: 1px solid #d2dfd9;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 0.95em;
+    resize: vertical;
+    background: #fff;
+    color: #102b24;
+    box-sizing: border-box;
+}
+.edit-message-input:focus {
+    outline: none;
+    border-color: #0a6e4a;
+}
+.edit-message-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+.edit-save-btn, .edit-cancel-btn {
+    padding: 4px 12px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85em;
+    font-weight: 600;
+}
+.edit-save-btn {
+    background: #0a6e4a;
+    color: #fff;
+}
+.edit-save-btn:hover {
+    background: #085a3c;
+}
+.edit-save-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+.edit-cancel-btn {
+    background: #e0e0e0;
+    color: #333;
+}
+.edit-cancel-btn:hover {
+    background: #d0d0d0;
+}
 
 /* Accordion Administrativo */
 .admin-details-group > summary::-webkit-details-marker {

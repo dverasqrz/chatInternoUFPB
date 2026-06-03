@@ -18,6 +18,7 @@ from app.schemas.message import (
     MessageBulkDeleteRequest,
     MessageBulkDeleteResponse,
     MessageRead,
+    MessageEditRequest,
     OutboundMessageCreate,
     MessageSearchResult,
 )
@@ -337,6 +338,53 @@ async def revoke_message(
     message.media_url = None
     message.media_mime_type = None
     message.message_type = MessageType.TEXT
+    db.commit()
+    db.refresh(message)
+
+    return MessageRead.model_validate(message)
+
+
+@router.patch(
+    "/{conversation_id}/messages/{message_id}",
+    response_model=MessageRead,
+)
+def edit_message(
+    conversation_id: int,
+    message_id: int,
+    data: MessageEditRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_password_changed),
+) -> MessageRead:
+    conversation = db.get(Conversation, conversation_id)
+    if not conversation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada.")
+
+    message = db.scalar(
+        select(Message).where(
+            Message.conversation_id == conversation_id,
+            Message.id == message_id,
+        )
+    )
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mensagem não encontrada.",
+        )
+
+    if message.direction == MessageDirection.OUTBOUND and message.attendant_id and message.attendant_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você só pode editar suas próprias mensagens.",
+        )
+
+    if message.text_content and message.text_content.startswith("\U0001f6ab Essa mensagem foi apagada"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Não é possível editar uma mensagem apagada.",
+        )
+
+    message.text_content = data.text_content
+    message.is_edited = True
     db.commit()
     db.refresh(message)
 

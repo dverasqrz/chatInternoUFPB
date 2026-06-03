@@ -63,6 +63,8 @@ class Message(Base):
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True)
+    is_edited: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
 
     conversation = relationship("Conversation", back_populates="messages")
     attendant = relationship("User", back_populates="outbound_messages")

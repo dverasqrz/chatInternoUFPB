@@ -2002,7 +2002,8 @@ async function downloadExportHtml() {
   const { query, date, startTime, endTime } = buildExportQuery();
   const data = await apiRequest(`/conversations/${state.exportContext.conversationId}/export?${query}`);
   const safePhone = (data.contact_phone || "").replace(/\D/g, "") || "sem_telefone";
-  const filename = `${safePhone}_${date}.html`;
+  const [yyyy, mm, dd] = date.split("-");
+  const filename = `${safePhone}_${dd}_${mm}_${yyyy}.html`;
   downloadBlob(buildExportHtmlDocument(data), filename, "text/html;charset=utf-8");
 }
 
@@ -2030,7 +2031,8 @@ async function downloadExportPdf() {
     const conv = state.activeConversations && state.activeConversations.find(c => c.id === state.exportContext.conversationId);
     const contactPhone = conv ? (conv.contact_phone || "") : "";
     const safePhone = contactPhone.replace(/\D/g, "") || "sem_telefone";
-    filename = `${safePhone}_${date}.pdf`;
+    const [yyyy, mm, dd] = date.split("-");
+    filename = `${safePhone}_${dd}_${mm}_${yyyy}.pdf`;
   }
   downloadBlob(await response.blob(), filename, "application/pdf");
 }
@@ -2070,8 +2072,10 @@ function renderMessages(messages, options = {}) {
             : (message.sender_name || "Cliente");
         const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
+        const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
+            ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
         return `<article class="message-item ${klass} message-new" data-id="${message.id}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${revokeBtn}</div>
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -2106,8 +2110,10 @@ function renderMessages(messages, options = {}) {
             : (message.sender_name || "Cliente");
         const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
+        const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
+            ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
         return `<article class="message-item ${klass}" data-id="${message.id}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${revokeBtn}</div>
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -2131,8 +2137,10 @@ function renderMessages(messages, options = {}) {
             : (message.sender_name || "Cliente");
         const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
+        const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
+            ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
         return `<article class="message-item ${klass}" data-id="${message.id}">
-            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span><span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${revokeBtn}</div>
+            <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
             ${buildMessageBody(message)}
           </article>`;
       })
@@ -3239,6 +3247,114 @@ async function bootstrap() {
     clearPolls();
     showToast(error.message || "Falha ao carregar inbox. Atualize a página.");
   }
+}
+
+function startEditMessage(messageId, btnElement) {
+  const messageContainer = btnElement.closest('.message-item[data-id="' + messageId + '"]');
+  if (!messageContainer) return;
+
+  const msgBody = messageContainer.querySelector('.message-body');
+  if (!msgBody) return;
+
+  const currentText = msgBody.textContent.trim();
+  const metaDiv = messageContainer.querySelector('.message-meta');
+
+  const editArea = document.createElement('div');
+  editArea.className = 'edit-message-area';
+  editArea.innerHTML = `
+    <textarea class="edit-message-input">${currentText}</textarea>
+    <div class="edit-message-actions">
+      <button class="edit-save-btn" onclick="saveEditMessage(${messageId}, this)">Salvar</button>
+      <button class="edit-cancel-btn" onclick="cancelEditMessage(${messageId}, this, ${JSON.stringify(currentText).replace(/"/g, '&quot;')})">Cancelar</button>
+    </div>
+  `;
+
+  msgBody.style.display = 'none';
+  if (metaDiv) metaDiv.style.display = 'none';
+  msgBody.parentNode.insertBefore(editArea, msgBody.nextSibling);
+
+  const textarea = editArea.querySelector('.edit-message-input');
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+  textarea.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      saveEditMessage(messageId, editArea.querySelector('.edit-save-btn'));
+    }
+    if (e.key === 'Escape') {
+      cancelEditMessage(messageId, editArea.querySelector('.edit-cancel-btn'), currentText);
+    }
+  });
+}
+
+async function saveEditMessage(messageId, btnElement) {
+  if (!state.selectedConversationId) return;
+  const conversationId = state.selectedConversationId;
+
+  const editArea = btnElement.closest('.edit-message-area');
+  if (!editArea) return;
+
+  const textarea = editArea.querySelector('.edit-message-input');
+  const newText = textarea.value.trim();
+
+  if (!newText) {
+    showErrorToast("A mensagem não pode ficar vazia.");
+    return;
+  }
+
+  btnElement.disabled = true;
+  btnElement.textContent = "Salvando...";
+
+  try {
+    const updatedMessage = await apiRequest(`/conversations/${conversationId}/messages/${messageId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ text_content: newText }),
+    });
+
+    showSuccessToast("Mensagem editada com sucesso.");
+
+    const messageContainer = editArea.closest('.message-item[data-id="' + messageId + '"]');
+    if (messageContainer) {
+      const msgBody = messageContainer.querySelector('.message-body');
+      const metaDiv = messageContainer.querySelector('.message-meta');
+      if (msgBody) {
+        msgBody.innerHTML = `<p style="white-space: pre-wrap; margin: 0;">${formatWhatsAppText(escapeHtml(newText))}</p>`;
+        msgBody.style.display = '';
+      }
+      if (metaDiv) metaDiv.style.display = '';
+      editArea.remove();
+
+      let editedTag = metaDiv ? metaDiv.querySelector('.msg-edited') : null;
+      if (!editedTag) {
+        const senderSpan = metaDiv ? metaDiv.querySelector('span') : null;
+        if (senderSpan) {
+          editedTag = document.createElement('span');
+          editedTag.className = 'msg-edited';
+          editedTag.textContent = 'editada';
+          senderSpan.parentNode.insertBefore(editedTag, senderSpan.nextSibling.nextSibling);
+        }
+      }
+    }
+  } catch (error) {
+    btnElement.disabled = false;
+    btnElement.textContent = "Salvar";
+    showErrorToast(error.message || "Erro ao editar mensagem.");
+  }
+}
+
+function cancelEditMessage(messageId, btnElement, originalText) {
+  const editArea = btnElement.closest('.edit-message-area');
+  if (!editArea) return;
+
+  const messageContainer = editArea.closest('.message-item[data-id="' + messageId + '"]');
+  if (messageContainer) {
+    const msgBody = messageContainer.querySelector('.message-body');
+    const metaDiv = messageContainer.querySelector('.message-meta');
+    if (msgBody) msgBody.style.display = '';
+    if (metaDiv) metaDiv.style.display = '';
+  }
+  editArea.remove();
 }
 
 async function revokeMessage(messageId, btnElement) {
