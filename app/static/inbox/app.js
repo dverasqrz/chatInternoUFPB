@@ -5,8 +5,6 @@ const state = {
   user: null,
   conversations: [],
   messagesByConversation: {},
-  messageOffsets: {},
-  hasMoreMessages: {},
   selectedConversationId: null,
   messageSignaturesByConversation: {},
   pendingMessageRefresh: null,
@@ -2324,8 +2322,10 @@ async function loadMessages(options = {}) {
       renderMessages(messages);
     }
     
-    const signature = buildMessageSignature(messages);
-    state.messageSignaturesByConversation[conversationId] = signature;
+    if (!loadMore) {
+      const signature = buildMessageSignature(messages);
+      state.messageSignaturesByConversation[conversationId] = signature;
+    }
     
     if (state.pendingMessageRefresh?.conversationId === conversationId) {
       state.pendingMessageRefresh = null;

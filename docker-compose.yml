@@ -13,10 +13,7 @@ services:
     env_file:
       - .env
     environment:
-      # SUPABASE fallback - comentado para usar banco interno
-      # DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres.rcfjdwtwfbrlfaosvvno:s4MFwYYUz5kY3B9W@aws-1-us-west-2.pooler.supabase.com:5432/postgres}
-      # BANCO INTERNO UFPB fallback
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://cau_ufpb:s4MFwYYUz5kY3B9W@automacoes_sti_ufpb_bd_whatsapp_interno_cau:5432/ufpb_chat?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be configured in .env or environment}
       PYTHONPATH: /app
     ports:
       - "8000:8000"

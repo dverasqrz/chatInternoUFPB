@@ -38,7 +38,7 @@ def sync_webhook_urls_on_startup():
             
             if env_outbound and runtime_settings.outbound_webhook_url != env_outbound:
                 logger.info(f"Updating outbound webhook URL: {runtime_settings.outbound_webhook_url} -> {env_outbound}")
-                runtime_settings.outbound_webbound_url = env_outbound
+                runtime_settings.outbound_webhook_url = env_outbound
                 changes.append("outbound_webhook_url")
             
             # Sync inbound webhook token

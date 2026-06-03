@@ -156,7 +156,7 @@ class MediaService:
                 )
             
             # Generate secure filename
-            filename = generate_secure_filename(file.filename or "upload") + extension
+            filename = generate_secure_filename(file.filename or f"upload{extension}")
             file_path = self.storage_path / filename
             
             # Save file

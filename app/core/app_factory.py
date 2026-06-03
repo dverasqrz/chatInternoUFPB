@@ -175,8 +175,8 @@ class ApplicationFactory:
         Each router is included with appropriate prefix and documentation.
         """
         from app.api.routes import (
-            admin, auth, conversations, health, 
-            templates, uploads, uploads_v2, users, 
+            admin, auth, conversations, health,
+            templates, uploads_v2, users,
             webhook, whatsapp_tools, ai
         )
         
@@ -197,7 +197,6 @@ class ApplicationFactory:
         app.include_router(admin.router, prefix=api_prefix, tags=["Administration"])
         
         # File management
-        app.include_router(uploads.router, prefix=api_prefix, tags=["Uploads"])
         app.include_router(uploads_v2.router, prefix=api_prefix, tags=["Uploads v2"])
         
         # WhatsApp-specific tools

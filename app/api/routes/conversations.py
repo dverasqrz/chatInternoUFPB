@@ -158,6 +158,7 @@ def search_messages(
 def list_messages(
     conversation_id: int,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user_password_changed),
 ) -> list[MessageRead]:
@@ -168,7 +169,8 @@ def list_messages(
     messages = db.scalars(
         select(Message)
         .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .offset(offset)
         .limit(limit)
     ).all()
     return [MessageRead.model_validate(item) for item in reversed(messages)]

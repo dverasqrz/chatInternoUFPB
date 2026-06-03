@@ -1,4 +1,5 @@
 import json
+import os
 import httpx
 
 payload = {
@@ -26,8 +27,8 @@ payload = {
     "destination": "https://workflow.sti.ufpb.br/webhook/entrada_chat_UFPB",
     "date_time": "2026-04-08T09:25:36.196Z",
     "sender": "558332167336@s.whatsapp.net",
-    "server_url": "https://automacoes-sti-ufpb-evolution-api.lhfptj.easypanel.host",
-    "apikey": "2F626942153A-408F-9736-84732A84831A"
+    "server_url": "https://evolution.example.com",
+    "apikey": os.getenv("EVOLUTION_API_KEY", "CHANGE_ME_EVOLUTION_API_KEY")
 }
 
 resp = httpx.post('http://127.0.0.1:8000/api/inbox', json=payload)

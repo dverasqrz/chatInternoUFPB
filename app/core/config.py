@@ -25,10 +25,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     
     # Database settings
-    # SUPABASE - comentado para usar banco interno
-    # database_url: str = "postgresql+psycopg2://postgres.rcfjdwtwfbrlfaosvvno:s4MFwYYUz5kY3B9W@aws-1-us-west-2.pooler.supabase.com:5432/postgres"
-    # BANCO INTERNO UFPB
-    database_url: str = "postgresql+psycopg2://cau_ufpb:s4MFwYYUz5kY3B9W@automacoes_sti_ufpb_bd_whatsapp_interno_cau:5432/ufpb_chat?sslmode=disable"
+    database_url: str = "postgresql+psycopg2://postgres:postgres@localhost:5432/ufpb_chat"
     database_pool_size: int = 5
     database_max_overflow: int = 10
     database_pool_timeout: int = 30
@@ -40,8 +37,8 @@ class Settings(BaseSettings):
     password_min_length: int = 8
     
     # Admin settings
-    admin_name: str = "Diego Veras"
-    admin_email: str = "diego.veras@gmail.com"
+    admin_name: str = "Admin Principal"
+    admin_email: str = "admin@example.com"
     admin_bootstrap_file: Path = Path("/app/runtime/admin_bootstrap.txt")
     
     # Webhook settings
