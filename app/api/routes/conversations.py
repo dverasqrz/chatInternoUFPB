@@ -450,24 +450,15 @@ def export_conversation_pdf(
     )
     pdf_bytes = build_pdf_bytes(export_data)
     
-    # Sanitizar nome do contato para usar no filename
-    contact_name = conversation.contact_name
+    # Usar telefone do contato para nome do arquivo
+    contact_phone = conversation.contact_phone or ""
+    # Remover tudo que nao for digito
+    safe_phone = re.sub(r'\D', '', contact_phone)
+    if not safe_phone:
+        safe_phone = "sem_telefone"
     
-    if not contact_name or not contact_name.strip() or contact_name.strip() == '.':
-        safe_name = "Contato_sem_nome"
-    else:
-        # Remover caracteres inválidos para filename e substituir espaços por underscore
-        safe_name = re.sub(r'[^\w\s-]', '', contact_name).strip()
-        safe_name = re.sub(r'[-\s]+', '_', safe_name)
-        # Se após sanitização ficou vazio, usar fallback
-        if not safe_name:
-            safe_name = "Contato_sem_nome"
-        else:
-            # Limitar tamanho do nome
-            safe_name = safe_name[:50]
-    
-    # Formato: nome_dd_mm_yyyy.pdf
-    filename = f"{safe_name}_{export_date.strftime('%d_%m_%Y')}.pdf"
+    # Formato: telefone_dd_mm_yyyy.pdf
+    filename = f"{safe_phone}_{export_date.strftime('%d_%m_%Y')}.pdf"
     
     stream = BytesIO(pdf_bytes)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

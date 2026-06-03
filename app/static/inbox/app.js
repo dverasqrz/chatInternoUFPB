@@ -2001,8 +2001,8 @@ async function downloadExportHtml() {
   }
   const { query, date, startTime, endTime } = buildExportQuery();
   const data = await apiRequest(`/conversations/${state.exportContext.conversationId}/export?${query}`);
-  const safeName = data.contact_name.replace(/\\s+/g, "_");
-  const filename = `${safeName}_${date}.html`;
+  const safePhone = (data.contact_phone || "").replace(/\D/g, "") || "sem_telefone";
+  const filename = `${safePhone}_${date}.html`;
   downloadBlob(buildExportHtmlDocument(data), filename, "text/html;charset=utf-8");
 }
 
@@ -2028,9 +2028,9 @@ async function downloadExportPdf() {
   // Fallback: usar a mesma lógica do HTML se não conseguir extrair do header
   if (!filename) {
     const conv = state.activeConversations && state.activeConversations.find(c => c.id === state.exportContext.conversationId);
-    const contactName = conv ? (conv.contact_name || conv.contact_phone || "Contato") : "Contato";
-    const safeName = contactName.replace(/\\s+/g, "_");
-    filename = `${safeName}_${date}.pdf`;
+    const contactPhone = conv ? (conv.contact_phone || "") : "";
+    const safePhone = contactPhone.replace(/\D/g, "") || "sem_telefone";
+    filename = `${safePhone}_${date}.pdf`;
   }
   downloadBlob(await response.blob(), filename, "application/pdf");
 }
