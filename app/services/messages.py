@@ -276,11 +276,21 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if event == "messages.update":
         data = payload.get("data") or {}
         key = data.get("key") or {}
-        msg_id = key.get("id") or data.get("id") or data.get("messageId")
+        # Na edição, o ID do WhatsApp vem em "keyId", não em "key.id"
+        msg_id = data.get("keyId") or key.get("id") or data.get("id") or data.get("messageId")
+
+        # Log completo para debug de edições
+        logger.info(f"[NORM] messages.update keyId={msg_id}, keys_in_data={list(data.keys())}, message_keys={list((data.get('message') or {}).keys())}, raw_data={data}")
 
         # Detectar se é edição de mensagem (editedMessage)
-        edited_msg = data.get("message", {}).get("editedMessage", {})
+        # EvolutionAPI pode enviar editedMessage em diferentes locais
+        edited_msg = (
+            data.get("message", {}).get("editedMessage")
+            or data.get("editedMessage")
+            or {}
+        )
         if edited_msg:
+            logger.info(f"[NORM] edited_msg encontrado: {edited_msg}")
             new_text = (
                 edited_msg.get("message", {}).get("conversation")
                 or edited_msg.get("message", {}).get("extendedTextMessage", {}).get("text")
@@ -288,8 +298,8 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 or ""
             )
             phone = _normalize_phone(
-                key.get("remoteJid", "").replace("@lid", "")
-                or data.get("remoteJid", "").replace("@lid", "")
+                data.get("remoteJid", "").replace("@lid", "")
+                or key.get("remoteJid", "").replace("@lid", "")
                 or data.get("sender")
                 or payload.get("sender")
             )
@@ -328,20 +338,35 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 "raw_payload": payload,
             }
 
-        # Status update normal
-        status_map = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 0}
+        # Status update normal - EvolutionAPI envia string ou número
+        status_string_map = {
+            "ERROR": DeliveryStatus.FAILED,
+            "PENDING": DeliveryStatus.QUEUED,
+            "SENT": DeliveryStatus.SENT,
+            "SERVER_ACK": DeliveryStatus.SENT,
+            "DELIVERY_ACK": DeliveryStatus.DELIVERED,
+            "PLAYED": DeliveryStatus.READ,
+            "READ": DeliveryStatus.READ,
+        }
+        status_numeric_map = {0: DeliveryStatus.FAILED, 1: DeliveryStatus.QUEUED, 2: DeliveryStatus.SENT, 3: DeliveryStatus.DELIVERED, 4: DeliveryStatus.READ, 5: DeliveryStatus.FAILED}
         raw_status = (
             data.get("status")
             or data.get("update", {}).get("status")
             or data.get("messageStatus")
         )
-        status_num = None
+        delivery_status = None
         if raw_status is not None:
-            status_num = status_map.get(int(raw_status), None)
+            raw_str = str(raw_status).strip().upper()
+            delivery_status = status_string_map.get(raw_str)
+            if delivery_status is None:
+                try:
+                    delivery_status = status_numeric_map.get(int(raw_status))
+                except (ValueError, TypeError):
+                    pass
 
         phone = _normalize_phone(
-            key.get("remoteJid", "").replace("@lid", "")
-            or data.get("remoteJid", "").replace("@lid", "")
+            data.get("remoteJid", "").replace("@lid", "")
+            or key.get("remoteJid", "").replace("@lid", "")
             or data.get("sender")
             or payload.get("sender")
         )
@@ -350,7 +375,7 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "event": event,
             "contact_phone": phone,
             "external_message_id": msg_id,
-            "status": status_num,
+            "delivery_status": delivery_status,
             "direction": None,
             "message_type": None,
             "text_content": None,
@@ -520,6 +545,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         if msg_id:
             # Buscar por external_message_id (WhatsApp key ID)
             message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
+            logger.info(f"[EDIT-IN] Buscando external_id={msg_id}, encontrou={message is not None}")
 
             # Fallback: tentar buscar por messageId (interno EvolutionAPI)
             if not message:
@@ -533,6 +559,16 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
                 conversation = db.scalar(select(Conversation).where(Conversation.contact_phone == contact_phone))
                 if conversation:
+                    # Log para debug: listar external_ids recentes da conversa
+                    recent_msgs = db.scalars(
+                        select(Message).where(
+                            Message.conversation_id == conversation.id,
+                            Message.created_at >= five_min_ago,
+                        ).order_by(Message.created_at.desc())
+                    ).all()
+                    for rm in recent_msgs[:5]:
+                        logger.info(f"[EDIT-IN] Msg recente id={rm.id} ext_id={rm.external_message_id} dir={rm.direction} text={rm.text_content[:30] if rm.text_content else None}")
+                    
                     message = db.scalar(
                         select(Message).where(
                             Message.conversation_id == conversation.id,
@@ -541,7 +577,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                         ).order_by(Message.created_at.desc())
                     )
                     if message:
-                        logger.info(f"[EDIT-IN] Fallback 2: mensagem encontrada por conversa+tempo id={message.id}")
+                        logger.info(f"[EDIT-IN] Fallback 2: mensagem encontrada por conversa+tempo id={message.id} ext_id={message.external_message_id}")
 
             if message and event in ("messages.edited", "messages.edit"):
                 if new_text:
@@ -579,21 +615,11 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     # Tratamento especial de Eventos Atualização (status)
     if event == "messages.update":
         msg_id = normalized.get("external_message_id")
-        status_num = normalized.get("status")
-        if msg_id and status_num is not None:
-            # Evolution API status codes: 2: sent, 3: delivered, 4: read
+        delivery_status = normalized.get("delivery_status")
+        if msg_id and delivery_status is not None:
             message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
             if message:
-                if status_num == 0:
-                    message.delivery_status = DeliveryStatus.FAILED
-                elif status_num == 1:
-                    message.delivery_status = DeliveryStatus.QUEUED
-                elif status_num == 2:
-                    message.delivery_status = DeliveryStatus.SENT
-                elif status_num == 3:
-                    message.delivery_status = DeliveryStatus.DELIVERED
-                elif status_num >= 4:
-                    message.delivery_status = DeliveryStatus.READ
+                message.delivery_status = delivery_status
                 db.commit()
                 db.refresh(message)
                 return message
