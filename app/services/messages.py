@@ -578,22 +578,53 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     # Para eventos de edição/deleção, buscar por external_message_id primeiro
     # (LID pode não corresponder ao telefone da conversa)
     if event in ("messages.edited", "messages.edit", "messages.delete"):
+        import logging
+        logger = logging.getLogger(__name__)
         msg_id = normalized.get("external_message_id")
+        new_text = normalized.get("edited_text") if event != "messages.delete" else None
+        
+        logger.info(f"[EDIT-IN] event={event}, external_id={msg_id}, phone={contact_phone}, new_text={new_text!r}")
+        
         if msg_id:
+            # Buscar por external_message_id (WhatsApp key ID)
             message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
+            
+            # Fallback: tentar buscar por messageId (interno EvolutionAPI)
+            if not message:
+                evo_msg_id = normalized.get("raw_payload", {}).get("data", {}).get("messageId")
+                if evo_msg_id and evo_msg_id != msg_id:
+                    logger.info(f"[EDIT-IN] Tentando fallback com messageId={evo_msg_id}")
+                    message = db.scalar(select(Message).where(Message.external_message_id == evo_msg_id))
+            
+            # Fallback 2: buscar na conversa por texto similar nos ultimos 5 min
+            if not message and contact_phone:
+                from datetime import datetime, timedelta, timezone
+                five_min_ago = datetime.now(timezone.utc) - timedelta(minutes=5)
+                conversation = db.scalar(select(Conversation).where(Conversation.contact_phone == contact_phone))
+                if conversation:
+                    message = db.scalar(
+                        select(Message).where(
+                            Message.conversation_id == conversation.id,
+                            Message.direction == MessageDirection.INBOUND,
+                            Message.created_at >= five_min_ago,
+                        ).order_by(Message.created_at.desc())
+                    )
+                    if message:
+                        logger.info(f"[EDIT-IN] Fallback 2: mensagem encontrada por conversa+tempo id={message.id}")
+            
             if message and event in ("messages.edited", "messages.edit"):
-                new_text = normalized.get("edited_text")
                 if new_text:
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.info(f"[EDIT] Mensagem encontrada id={message.id}, atualizando texto")
+                    logger.info(f"[EDIT-IN] Mensagem encontrada id={message.id}, atualizando texto")
                     message.text_content = new_text
                     message.is_edited = True
                     message.message_type = MessageType.TEXT
                     db.commit()
                     db.refresh(message)
                     return message
+                else:
+                    logger.warning(f"[EDIT-IN] Texto vazio na edição")
             elif message and event == "messages.delete":
+                logger.info(f"[EDIT-IN] Deletando mensagem id={message.id}")
                 message.text_content = "🚫 Essa mensagem foi apagada"
                 message.media_url = None
                 message.media_mime_type = None
@@ -601,6 +632,8 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 db.commit()
                 db.refresh(message)
                 return message
+            else:
+                logger.warning(f"[EDIT-IN] Nenhuma mensagem encontrada para external_id={msg_id}")
         return None
     
     # Ignore webhooks where the contact phone is the UFPB system bot itself
