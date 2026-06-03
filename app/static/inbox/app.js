@@ -2076,7 +2076,7 @@ function renderMessages(messages, options = {}) {
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
         return `<article class="message-item ${klass} message-new" data-id="${message.id}">
             <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
-            ${buildMessageBody(message)}
+            <div class="message-body">${buildMessageBody(message)}</div>
           </article>`;
       })
       .join("");
@@ -2114,7 +2114,7 @@ function renderMessages(messages, options = {}) {
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
         return `<article class="message-item ${klass}" data-id="${message.id}">
             <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
-            ${buildMessageBody(message)}
+            <div class="message-body">${buildMessageBody(message)}</div>
           </article>`;
       })
       .join("");
@@ -2141,7 +2141,7 @@ function renderMessages(messages, options = {}) {
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
         return `<article class="message-item ${klass}" data-id="${message.id}">
             <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${editBtn}${revokeBtn}</div>
-            ${buildMessageBody(message)}
+            <div class="message-body">${buildMessageBody(message)}</div>
           </article>`;
       })
       .join("");
