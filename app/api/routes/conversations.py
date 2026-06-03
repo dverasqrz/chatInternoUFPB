@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_admin, get_current_user_password_changed
 from app.db.session import get_db
 from app.models.conversation import Conversation
-from app.models.message import Message, MessageType
+from app.models.message import Message, MessageDirection, MessageType
 from app.models.user import User
 from app.schemas.conversation import ConversationRead, ConversationCreate
 from app.schemas.export import ConversationExportResponse

@@ -3339,7 +3339,11 @@ async function saveEditMessage(messageId, btnElement) {
   } catch (error) {
     btnElement.disabled = false;
     btnElement.textContent = "Salvar";
-    showErrorToast(error.message || "Erro ao editar mensagem.");
+    let msg = error.message || "Erro ao editar mensagem.";
+    if (msg === "An unexpected error occurred") {
+      msg = "Erro interno ao salvar. Verifique o console do navegador para detalhes.";
+    }
+    showErrorToast(msg);
   }
 }
 
