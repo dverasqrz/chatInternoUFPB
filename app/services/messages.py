@@ -314,18 +314,32 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         key = item.get("key") or {}
         update = item.get("update") or {}
         
+        # Extrair remoteJid - suporta LID e formato normal
         remote_jid = key.get("remoteJid") or item.get("remoteJid") or payload.get("remoteJid")
+        remote_jid_alt = item.get("remoteJidAlt") or payload.get("remoteJidAlt")
+        
+        # external_message_id - tenta keyId, id, messageId
         external_id = key.get("id") or item.get("keyId") or item.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
 
-        # Detectar se é uma edição de mensagem (update.message.editedMessage)
-        edited_msg = update.get("message", {}).get("editedMessage", {})
+        # Detectar se é uma edição de mensagem
+        # Estrutura real: data.message.editedMessage.message.conversation
+        msg_obj = item.get("message") or {}
+        edited_msg = msg_obj.get("editedMessage") or {}
         if isinstance(edited_msg, dict) and edited_msg:
             inner = edited_msg.get("message", edited_msg)
             new_text = inner.get("conversation") or inner.get("extendedTextMessage", {}).get("text") or inner.get("text") or inner.get("body")
             if new_text:
+                # Resolver telefone: remoteJidAlt > sender (quando remoteJid é LID)
+                phone_to_use = remote_jid
+                if remote_jid and "@lid" in str(remote_jid):
+                    if remote_jid_alt:
+                        phone_to_use = remote_jid_alt
+                    else:
+                        # Fallback: usar sender que contém o telefone real
+                        phone_to_use = payload.get("sender") or remote_jid
                 return {
                     "event": "messages.edited",
-                    "contact_phone": _normalize_phone(remote_jid),
+                    "contact_phone": _normalize_phone(phone_to_use),
                     "external_message_id": external_id,
                     "edited_text": new_text,
                     "raw_payload": payload,
@@ -364,10 +378,16 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         
         msg_id = msg_key.get("id") or msg_data.get("id") or msg_data.get("keyId") or msg_data.get("messageId") or payload.get("id") or payload.get("messageId") or payload.get("key", {}).get("id")
         remote_jid = msg_key.get("remoteJid") or msg_data.get("remoteJid") or payload.get("remoteJid") or payload.get("key", {}).get("remoteJid")
+        remote_jid_alt = msg_data.get("remoteJidAlt") or payload.get("remoteJidAlt")
+        
+        # Usar remoteJidAlt se remoteJid for LID
+        phone_to_use = remote_jid
+        if remote_jid and "@lid" in str(remote_jid) and remote_jid_alt:
+            phone_to_use = remote_jid_alt
         
         return {
             "event": event,
-            "contact_phone": _normalize_phone(remote_jid),
+            "contact_phone": _normalize_phone(phone_to_use),
             "external_message_id": msg_id,
             "raw_payload": payload,
         }
@@ -603,17 +623,23 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         return None
 
     if event in ("messages.edited", "messages.edit"):
+        import logging
+        logger = logging.getLogger(__name__)
         msg_id = normalized.get("external_message_id")
         new_text = normalized.get("edited_text")
+        logger.info(f"[EDIT] event={event}, external_id={msg_id}, new_text={new_text!r}, phone={normalized.get('contact_phone')}")
         if msg_id and new_text:
             message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
             if message:
+                logger.info(f"[EDIT] Mensagem encontrada id={message.id}, atualizando texto")
                 message.text_content = new_text
                 message.is_edited = True
                 message.message_type = MessageType.TEXT
                 db.commit()
                 db.refresh(message)
                 return message
+            else:
+                logger.warning(f"[EDIT] Nenhuma mensagem encontrada com external_message_id={msg_id}")
         return None
 
     contact_name = normalized.get("contact_name")
