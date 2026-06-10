@@ -781,6 +781,32 @@ body {
   border-left: 3px solid #2e7d32;
   box-shadow: 0 1px 4px rgba(46, 125, 50, 0.2);
 }
+.message-quote {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-left: 3px solid #06cf9c;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 0 6px 6px 0;
+  font-size: 12px;
+}
+.message-quote-sender {
+  font-weight: 600;
+  color: #0a3b2b;
+  margin-bottom: 2px;
+}
+.message-quote-text {
+  color: #667781;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 300px;
+}
+.message-item.outbound .message-quote {
+  border-left-color: #53bdeb;
+  background: rgba(255, 255, 255, 0.3);
+}
 .message-item.outbound {
 
   background: var(--outbound);

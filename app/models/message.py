@@ -66,6 +66,8 @@ class Message(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True)
     is_edited: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
     is_read: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
+    quoted_message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quoted_message_sender: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
     attendant = relationship("User", back_populates="outbound_messages")

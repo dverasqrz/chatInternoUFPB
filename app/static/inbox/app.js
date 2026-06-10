@@ -1830,7 +1830,7 @@ function renderConversations() {
       const initials = getInitials(fallbackName);
       const bgColor = stringToColor(conversation.contact_phone || fallbackName);
       const avatarContent = conversation.profile_picture_url 
-        ? `<img src="${escapeHtml(conversation.profile_picture_url)}" alt="Avatar">`
+        ? `<img src="${escapeHtml(conversation.profile_picture_url)}" alt="Avatar" onerror="this.style.display='none';this.parentNode.innerHTML='${initials}';this.parentNode.style.backgroundColor='${bgColor}';">`
         : initials;
       return `
         <li class="conversation-item ${activeClass}" data-id="${conversation.id}">
@@ -1891,28 +1891,37 @@ function buildMessageBody(message) {
   const safeText = formatWhatsAppText(escapeHtml(message.text_content || ""));
   const safeCaption = formatWhatsAppText(escapeHtml(message.media_caption || ""));
   const safeUrl = escapeHtml(message.media_url || "");
+
+  // Seção de referência (quoted message)
+  let quotedHtml = "";
+  if (message.quoted_message_text) {
+    const quotedSender = message.quoted_message_sender ? escapeHtml(message.quoted_message_sender) : "";
+    const quotedText = escapeHtml(message.quoted_message_text);
+    quotedHtml = `<div class="message-quote"><span class="message-quote-sender">${quotedSender}</span><span class="message-quote-text">${quotedText}</span></div>`;
+  }
+
   if (message.message_type === "image" && message.media_url) {
-    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada">`;
+    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada">`;
   }
   if (message.message_type === "document") {
     const urlHTML = message.media_url 
       ? `<a href="${safeUrl}" target="_blank" style="color:#0a3b2b;text-decoration:none;font-weight:700;">Baixar / Abrir arquivo</a>`
       : `<span style="color:#666;font-size:12px;font-style:italic;">Arquivo indisponível para download</span>`;
-    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento</strong><br>${urlHTML}</div></div>`;
+    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento</strong><br>${urlHTML}</div></div>`;
   }
   if (message.message_type === "audio" && message.media_url) {
     const encryptedHint = String(message.media_url).includes(".enc")
       ? `<p class="muted">Áudio criptografado do WhatsApp. Para reprodução no navegador, envie base64 no webhook de entrada.</p>`
       : "";
-    return `${safeCaption ? `<p>${safeCaption}</p>` : ""}<audio class="message-audio" controls src="${safeUrl}"></audio>${encryptedHint}`;
+    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<audio class="message-audio" controls src="${safeUrl}"></audio>${encryptedHint}`;
   }
   if (message.message_type === "text" || !message.message_type) {
     if (message.text_content && message.text_content.includes("🚫 Essa mensagem foi apagada")) {
-      return `<p class="deleted-msg" style="font-style: italic; color: var(--muted); margin: 0;">${safeText}</p>`;
+      return `${quotedHtml}<p class="deleted-msg" style="font-style: italic; color: var(--muted); margin: 0;">${safeText}</p>`;
     }
-    return `<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
+    return `${quotedHtml}<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
   }
-  return `<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
+  return `${quotedHtml}<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
 }
 
 function openExportModal(referenceTimestamp) {
@@ -2256,10 +2265,12 @@ async function loadConversations(preserveSelection = true) {
     els.chatTitle.textContent = selected?.contact_name || selected?.contact_phone || "Contato sem nome";
     els.chatSubtitle.textContent = selected?.contact_phone || "-";
     if (selected) {
+      const fallbackName = selected.contact_name || selected.contact_phone || "Contato sem nome";
+      const initials = getInitials(fallbackName);
+      const bgColor = stringToColor(selected.contact_phone || fallbackName);
       const avatarContent = selected.profile_picture_url 
-        ? `<img src="${escapeHtml(selected.profile_picture_url)}" alt="Avatar">`
-        : escapeHtml(getInitials(els.chatTitle.textContent));
-      const bgColor = stringToColor(selected.contact_phone || els.chatTitle.textContent);
+        ? `<img src="${escapeHtml(selected.profile_picture_url)}" alt="Avatar" onerror="this.style.display='none';this.parentNode.innerHTML='${initials}';this.parentNode.style.backgroundColor='${bgColor}';">`
+        : escapeHtml(initials);
       els.chatHeaderAvatar.innerHTML = avatarContent;
       els.chatHeaderAvatar.style.cssText = selected.profile_picture_url ? "background-color: transparent;" : `background-color: ${bgColor};`;
       els.chatHeaderAvatar.classList.remove("hidden");
@@ -2363,10 +2374,12 @@ async function selectConversation(id) {
   els.chatTitle.textContent = selected?.contact_name || selected?.contact_phone || "Contato sem nome";
   els.chatSubtitle.textContent = selected?.contact_phone || "-";
   if (selected) {
+    const fallbackName = selected.contact_name || selected.contact_phone || "Contato sem nome";
+    const initials = getInitials(fallbackName);
+    const bgColor = stringToColor(selected.contact_phone || fallbackName);
     const avatarContent = selected.profile_picture_url 
-      ? `<img src="${escapeHtml(selected.profile_picture_url)}" alt="Avatar">`
-      : escapeHtml(getInitials(els.chatTitle.textContent));
-    const bgColor = stringToColor(selected.contact_phone || els.chatTitle.textContent);
+      ? `<img src="${escapeHtml(selected.profile_picture_url)}" alt="Avatar" onerror="this.style.display='none';this.parentNode.innerHTML='${initials}';this.parentNode.style.backgroundColor='${bgColor}';">`
+      : escapeHtml(initials);
     els.chatHeaderAvatar.innerHTML = avatarContent;
     els.chatHeaderAvatar.style.cssText = selected.profile_picture_url ? "background-color: transparent;" : `background-color: ${bgColor};`;
     els.chatHeaderAvatar.classList.remove("hidden");

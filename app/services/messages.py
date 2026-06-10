@@ -452,7 +452,50 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         or message.get("text")
         or (message.get("extendedTextMessage") or {}).get("text")
     )
+
+    # Extrair referência da mensagem original (quotedMessage)
+    quoted_text = None
+    quoted_sender = None
+    extended = message.get("extendedTextMessage") or {}
+    context_info = extended.get("contextInfo") or {}
+    quoted_msg = context_info.get("quotedMessage") or {}
+    if quoted_msg:
+        quoted_text = (
+            quoted_msg.get("conversation")
+            or quoted_msg.get("text")
+            or (quoted_msg.get("extendedTextMessage") or {}).get("text")
+            or (quoted_msg.get("imageMessage") or {}).get("caption")
+            or (quoted_msg.get("videoMessage") or {}).get("caption")
+        )
+        if quoted_text:
+            quoted_text = quoted_text[:200]  # Limitar tamanho
+        # Quem enviou a mensagem original
+        quoted_sender = context_info.get("participant") or context_info.get("stanzaId")
+        if quoted_sender:
+            quoted_sender = quoted_sender.split("@")[0] if "@" in quoted_sender else quoted_sender
+
+    # Tratar reações (emoji como resposta/reação a mensagem)
+    reaction = message.get("reactionMessage") or {}
+    if reaction:
+        reaction_text = reaction.get("text") or ""
+        if reaction_text:
+            text_content = text_content or reaction_text
+
+    # Tratar viewOnceMessage (mensagem com visualização única)
+    view_once = message.get("viewOnceMessage") or message.get("viewOnceMessageV2") or {}
+    if view_once:
+        view_msg = view_once.get("message") or {}
+        if not text_content:
+            text_content = (
+                view_msg.get("conversation")
+                or view_msg.get("text")
+                or (view_msg.get("extendedTextMessage") or {}).get("text")
+            )
+
+    # Se ainda não tem texto e é mensagem de texto, marcar como sem texto
     if not text_content and message_type == MessageType.TEXT and not has_media:
+        # Log para debug de emojis/reactions
+        logger.debug(f"[TEXT] msg_keys={list(message.keys())}, conversation={message.get('conversation')!r}, extendedText={(message.get('extendedTextMessage') or {}).get('text')!r}, reaction={message.get('reactionMessage')}")
         text_content = "[mensagem sem texto]"
 
     media_url = None
@@ -494,8 +537,51 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "media_caption": media_caption,
         "external_message_id": msg_id,
         "sender": sender_raw,
+        "quoted_message_text": quoted_text,
+        "quoted_message_sender": quoted_sender,
         "raw_payload": payload,
     }
+
+
+def _download_profile_picture(url: str | None, server_url: str | None = None, apikey: str | None = None, instance: str | None = None) -> str | None:
+    """Download profile picture and store locally. Returns local path or None."""
+    if not url:
+        return None
+
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            resp = client.get(url)
+            if resp.status_code != 200:
+                logger.warning(f"Failed to download profile picture: {resp.status_code}")
+                return None
+
+            content_type = resp.headers.get("content-type", "")
+            if "image" not in content_type and not url.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif")):
+                logger.warning(f"Profile picture URL returned non-image content: {content_type}")
+                return None
+
+            image_bytes = resp.content
+            if len(image_bytes) < 100:
+                logger.warning(f"Profile picture too small ({len(image_bytes)} bytes), likely invalid")
+                return None
+
+            # Determine extension from content type or URL
+            ext = ".jpg"
+            if "png" in content_type or url.lower().endswith(".png"):
+                ext = ".png"
+            elif "webp" in content_type or url.lower().endswith(".webp"):
+                ext = ".webp"
+            elif "gif" in content_type or url.lower().endswith(".gif"):
+                ext = ".gif"
+
+            filename = f"profile_{secrets.token_hex(8)}{ext}"
+            dest = Path(get_settings().media_storage_path) / filename
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(image_bytes)
+            return f"/uploads/{filename}"
+    except Exception as e:
+        logger.warning(f"Error downloading profile picture: {e}")
+        return None
 
 
 def _get_or_create_conversation(
@@ -637,7 +723,12 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     profile_pic = normalized.get("profile_picture_url")
     if profile_pic:
-        conversation.profile_picture_url = profile_pic
+        # Sempre tentar baixar e armazenar localmente
+        local_path = _download_profile_picture(profile_pic, server_url=payload.get("server_url"), apikey=payload.get("apikey"), instance=payload.get("instance"))
+        if local_path:
+            conversation.profile_picture_url = local_path
+        elif not conversation.profile_picture_url:
+            conversation.profile_picture_url = profile_pic
         db.commit()
         db.refresh(conversation)
     elif not conversation.profile_picture_url:
@@ -660,7 +751,8 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                         data = resp.json()
                         fetched_url = data.get("profilePictureUrl")
                         if fetched_url:
-                            conversation.profile_picture_url = fetched_url
+                            local_path = _download_profile_picture(fetched_url)
+                            conversation.profile_picture_url = local_path or fetched_url
                             db.commit()
                             db.refresh(conversation)
                     else:
@@ -731,6 +823,8 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         sender_phone=normalized["contact_phone"],
         external_message_id=external_id,
         raw_payload=normalized["raw_payload"],
+        quoted_message_text=normalized.get("quoted_message_text"),
+        quoted_message_sender=normalized.get("quoted_message_sender"),
     )
     db.add(message)
     db.commit()
