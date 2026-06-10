@@ -119,3 +119,19 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        db.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS quoted_message_text TEXT;
+                """
+            )
+        )
+        db.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS quoted_message_sender VARCHAR(120);
+                """
+            )
+        )
