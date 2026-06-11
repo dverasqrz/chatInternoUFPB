@@ -12,6 +12,7 @@ from app.schemas.admin import (
     AISettingsRead, AISettingsUpdate
 )
 from app.services.runtime_settings import get_or_create_runtime_settings, invalidate_runtime_cache
+from app.core.config import get_settings
 import os
 import shutil
 from pathlib import Path
@@ -277,7 +278,7 @@ async def cleanup_uploads(
         logger.info("Iniciando limpeza de arquivos...")
         
         # Get uploads directory path
-        uploads_dir = Path("/app/uploads")
+        uploads_dir = get_settings().media_storage_path
         logger.info(f"Diretório uploads: {uploads_dir.absolute()}")
         
         deleted_files = []

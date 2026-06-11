@@ -1,941 +1,976 @@
-# Guia para agentes de IA - UFPB Chat System
+# Guia para Agentes de IA - UFPB Chat System
 
-Este arquivo e o ponto de partida para qualquer agente que for modificar o
-projeto. Ele documenta a arquitetura, os parametros configuraveis, os contratos
-de API, os fluxos de negocio e as armadilhas conhecidas encontradas durante a
-leitura completa do codigo.
+Este arquivo e o **ponto de partida obrigatorio** para qualquer agente que for
+modificar o projeto. Ele documenta a arquitetura, os parametros configuraveis,
+os contratos de API, os fluxos de negocio e as armilhas conhecidas encontradas
+durante a leitura completa do codigo.
 
-## Resumo rapido
+---
 
-O projeto e uma aplicacao FastAPI para atendimento multiatendente via WhatsApp,
-com frontend estatico em `/inbox`, banco PostgreSQL via SQLAlchemy, integracao
-com EvolutionAPI/n8n, upload de midia, templates de mensagens, exportacao de
-conversas e recursos de IA.
+## Sumario
 
-Pontos de entrada principais:
+1. [Resumo do Projeto](#1-resumo-do-projeto)
+2. [Arquitetura](#2-arquitetura)
+3. [Estrutura de Diretorios](#3-estrutura-de-diretorios)
+4. [Inicializacao da Aplicacao](#4-inicializacao-da-aplicacao)
+5. [Configuracao e Variaveis de Ambiente](#5-configuracao-e-variaveis-de-ambiente)
+6. [Banco de Dados e Modelos](#6-banco-de-dados-e-modelos)
+7. [Dependencias e Autorizacao](#7-dependencias-e-autorizacao)
+8. [Rotas HTTP](#8-rotas-http)
+9. [Servico de Mensagens e Webhooks](#9-servico-de-mensagens-e-webhooks)
+10. [Frontend](#10-frontend)
+11. [Scripts e Docker](#11-scripts-e-docker)
+12. [Armilhas Conhecidas](#12-armilhas-conhecidas)
+13. [Checklist para Novos Agentes](#13-checklist-para-novos-agentes)
+14. [Mapa Rapido de Arquivos](#14-mapa-rapido-de-arquivos)
 
-- `app/main.py`: cria `app = create_application()`.
-- `app/core/app_factory.py`: configura FastAPI, CORS, static files, rotas,
-  handlers de excecao e startup/shutdown.
-- `app/core/config.py`: define todos os parametros de ambiente em `Settings`.
-- `app/services/messages.py`: coracao da ingestao de webhooks e do envio
-  outbound para n8n.
-- `app/static/inbox/index.html`, `app/static/inbox/app.js`,
-  `app/static/inbox/styles.css`: frontend vanilla JS servido por FastAPI.
-- `docker-compose.yml` e `Dockerfile`: empacotamento atual.
+---
 
-Comandos uteis:
+## 1. Resumo do Projeto
+
+O projeto e uma aplicacao FastAPI para **atendimento multiatendente via WhatsApp**, com:
+
+- Frontend estatico em `/inbox` (vanilla JS, sem build step)
+- Banco PostgreSQL via SQLAlchemy
+- Integracao com EvolutionAPI v2.3.7 / n8n para envio/recebimento de mensagens
+- Upload de midia (imagens, audios, documentos)
+- Templates de mensagens
+- Exportacao de conversas (PDF com ReportLab, HTML)
+- Recursos de IA (consulta via n8n, agente automatico)
+
+**Stack:** Python 3.12 / FastAPI 0.128.3 / SQLAlchemy 2.0.40 / PostgreSQL / Vanilla JS  
+**Container:** Docker (python:3.12-slim + FFmpeg)  
+**Deploy:** EasyPanel  
+
+### Pontos de Entrada Principais
+
+| Arquivo | Funcao |
+| --- | --- |
+| `app/main.py` | Ponto de entrada - cria `app = create_application()` |
+| `app/core/app_factory.py` | Factory Pattern - configura FastAPI, CORS, rotas, static files, lifespan |
+| `app/core/config.py` | `Settings` (pydantic-settings) - todas as variaveis de ambiente |
+| `app/services/messages.py` | CORE - ingestao de webhooks, normalizacao, envio outbound |
+| `app/static/inbox/app.js` | Frontend vanilla JS (~3000 linhas) |
+| `app/static/inbox/index.html` | HTML principal do frontend |
+| `app/static/inbox/styles.css` | Estilos (~2800 linhas) |
+
+### Comandos Uteis
 
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+# Verificacao de sintaxe
 python -m compileall app scripts
 node --check app/static/inbox/app.js
+
+# Rodar localmente
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Docker
 docker compose up -d --build
+docker compose logs -f
 ```
 
-## Inicializacao da aplicacao
+---
 
-`create_application()` cria uma instancia de `ApplicationFactory`, que executa:
+## 2. Arquitetura
 
-1. `get_settings()` para carregar `.env`.
-2. `setup_logging(settings)`.
-3. `FastAPI(...)` com docs em `/api/v1/docs`, redoc em `/api/v1/redoc` e
-   openapi em `/api/v1/openapi.json`.
-4. CORS via `Settings.cors_*`.
-5. Middleware HTTP de logging detalhado.
-6. Static files:
-   - `/inbox` -> `app/static/inbox`, com `html=True`.
-   - `/uploads` -> `settings.media_storage_path`.
-7. Rotas de API e webhooks publicos.
-8. Exception handlers globais.
+### Padroes de Projeto
+
+- **Factory Pattern**: `app/core/app_factory.py` cria e configura o FastAPI
+- **Singleton**: `RuntimeSettings` (id=1) com cache em memoria via `runtime_settings.py`
+- **Challenge-Response**: login anti-bots com desafio temporario (`login_challenge.py`)
+- **Clean Code**: separacao em `api/routes`, `services`, `models`, `schemas`, `utils`
+
+### Ciclo de Vida da Aplicacao
+
+`create_application()` instancia `ApplicationFactory`, que:
+
+1. Carrega `get_settings()` do `.env`
+2. Configura logging via `setup_logging()`
+3. Cria `FastAPI(...)` com docs em `/api/v1/docs`
+4. Configura CORS (via `Settings.cors_*`)
+5. Registra middleware HTTP de logging detalhado
+6. Monta static files:
+   - `/inbox` -> `app/static/inbox` (com `html=True`)
+   - `/uploads` -> `settings.media_storage_path`
+7. Registra todas as rotas (webhook publico + API versionada)
+8. Configura exception handlers globais
 9. Lifespan de startup:
-   - espera o banco responder `SELECT 1`;
-   - roda `Base.metadata.create_all(bind=engine)`;
-   - aplica `ensure_schema_compatibility(engine)`;
-   - cria admin inicial com `ensure_initial_admin_user(db)`;
-   - cria/carrega `RuntimeSettings`;
-   - cria templates de sistema;
-   - sincroniza webhooks de ambiente para o banco;
-   - garante diretorio de midia.
+   - Aguarda banco (`SELECT 1` com retry, 30 tentativas)
+   - `Base.metadata.create_all(bind=engine)` - cria tabelas
+   - `ensure_schema_compatibility(engine)` - ADD COLUMN IF NOT EXISTS
+   - `ensure_initial_admin_user(db)` - cria admin se nao existir
+   - `get_or_create_runtime_settings(db)` - singleton
+   - `_initialize_system_templates(db)` - templates LGPD/Pesquisa
+   - `sync_webhook_urls_on_startup()` - env -> banco
+   - `media_storage_path.mkdir()` - garante diretorio de midia
 
-Ao acessar `/`, a aplicacao redireciona para `/inbox`.
+Ao acessar `/`, redireciona para `/inbox`.
 
-## Estrutura de diretorios
+### Fluxo de Mensagens
 
-- `app/api/deps.py`: dependencias FastAPI de auth e sessao.
-- `app/api/routes/`: routers por dominio.
-- `app/core/`: config, factory, logging, excecoes e utilitarios de seguranca
-  mais genericos.
-- `app/db/`: base declarativa e sessao SQLAlchemy.
-- `app/models/`: modelos SQLAlchemy.
-- `app/schemas/`: modelos Pydantic usados nas APIs.
-- `app/services/`: regras de negocio e integracoes.
-- `app/services/media/`: servico centralizado de upload/midia.
-- `app/static/inbox/`: UI web vanilla JS.
-- `scripts/`: scripts de diagnostico, testes manuais e suporte operacional.
-- `uploads/`, `runtime/`, `logs/`: diretorios de runtime, ignorados no git.
+**Inbound (WhatsApp -> Sistema):**
+1. EvolutionAPI envia payload para n8n
+2. n8n encaminha para `/webhook` ou `/api/inbox`
+3. `_validate_inbound_token()` valida token (env ou banco)
+4. `ingest_inbound_message()`:
+   - Normaliza telefone via `_normalize_phone()`
+   - Detecta tipo via `_extract_type()`
+   - Extrai midia de base64 ou baixa da CDN
+   - Cria `Conversation` se nao existir
+   - Cria `Message` com `direction=inbound`, `delivery_status=received`
+   - Atualiza `conversation.last_message_at`
+   - Opcionalmente encaminha para agente IA (background task)
 
-## Configuracao e parametros de ambiente
+**Outbound (Sistema -> WhatsApp):**
+1. Atendente envia via frontend (POST `/conversations/{id}/messages`)
+2. `create_outbound_message()`:
+   - Cria `Message` com `direction=outbound`, `delivery_status=queued`
+   - Atualiza `conversation.last_message_at` e `attendant.last_interaction_at`
+   - Busca URL outbound efetiva (env > banco)
+   - Monta payload para n8n (to, text, media, attendant)
+   - Auth outbound (header/basic/jwt conforme configuracao)
+   - POST com timeout 20s
+   - Sucesso -> `delivery_status=SENT`
+   - Erro -> `delivery_status=FAILED` + `error_message`
 
-Todas as configuracoes reais vivem em `app/core/config.py`. O `Settings` usa
-`pydantic-settings`, le `.env`, ignora campos extras e e case-insensitive.
+**Status Update (WhatsApp -> Sistema):**
+1. EvolutionAPI envia `messages.update` com status
+2. Normaliza status (string ou numerico)
+3. Atualiza `delivery_status` da mensagem por `external_message_id`
+
+**Edicao (WhatsApp -> Sistema):**
+1. `messages.update` com `data.update.message.editedMessage` -> atualiza texto
+2. `messages.upsert` com `secretEncryptedMessage` -> marca `is_edited=True`
+3. Atendente edita -> PATCH `/conversations/{id}/messages/{id}/edit`
+
+**Delete/Revoke (WhatsApp -> Sistema):**
+1. `messages.delete` -> marca texto como "Essa mensagem foi apagada"
+2. Atendente revoga -> POST `/conversations/{id}/messages/{id}/revoke` -> envia para n8n
+
+---
+
+## 3. Estrutura de Diretorios
+
+```
+chatZapUFPB/
+├── app/
+│   ├── api/
+│   │   ├── deps.py                 # Dependencias FastAPI (auth, sessao)
+│   │   └── routes/
+│   │       ├── auth.py             # Login, logout, challenge-response
+│   │       ├── users.py            # CRUD de usuarios (admin)
+│   │       ├── conversations.py    # CRUD conversas, mensagens, edicao, export
+│   │       ├── webhook.py          # Webhooks publicos (/webhook, /api/inbox)
+│   │       ├── admin.py            # Config webhook/IA, cleanup
+│   │       ├── templates.py        # CRUD de templates
+│   │       ├── uploads_v2.py       # Upload de midia (ativo)
+│   │       ├── uploads.py          # Upload legado (NAO registrado)
+│   │       ├── whatsapp_tools.py   # Status de midia WhatsApp
+│   │       ├── ai.py               # Consulta IA
+│   │       └── health.py           # Health check
+│   ├── core/
+│   │   ├── config.py               # Settings (pydantic-settings)
+│   │   ├── app_factory.py          # Factory Pattern
+│   │   ├── exceptions.py           # Handlers de excecao
+│   │   ├── logging.py              # Configuracao de logging
+│   │   └── security.py             # Utilitarios genericos (NAO usado pelas rotas)
+│   ├── db/
+│   │   ├── base.py                 # Base declarativa SQLAlchemy
+│   │   └── session.py              # Engine + SessionLocal
+│   ├── models/
+│   │   ├── user.py                 # Usuario
+│   │   ├── conversation.py         # Conversa
+│   │   ├── message.py              # Mensagem (enums: Direction, Type, Status)
+│   │   ├── runtime_settings.py     # Singleton de configuracao
+│   │   └── template.py             # Template de mensagens
+│   ├── schemas/                    # Modelos Pydantic para API
+│   ├── services/
+│   │   ├── messages.py             # CORE - ingestao, normalizacao, envio
+│   │   ├── bootstrap.py            # Admin inicial
+│   │   ├── login_challenge.py      # Challenge-response
+│   │   ├── runtime_settings.py     # Cache de RuntimeSettings
+│   │   ├── schema_maintenance.py   # ALTER TABLEs (ADD COLUMN IF NOT EXISTS)
+│   │   ├── conversation_export.py  # Geracao PDF/HTML
+│   │   ├── template_service.py     # CRUD de templates
+│   │   ├── webhook_sync.py         # Sync env -> banco
+│   │   ├── webhook_utils.py        # Token de webhook
+│   │   └── media/
+│   │       └── media_service.py    # Upload, validacao, delete
+│   ├── static/inbox/               # Frontend vanilla JS
+│   └── utils/
+│       └── security.py             # JWT, hash (USADO pelas rotas atuais)
+├── scripts/                        # Scripts de diagnostico e suporte
+├── Dockerfile                      # Python 3.12 + FFmpeg
+├── docker-compose.yml              # Compose para EasyPanel
+├── requirements.txt                # Dependencias PyPI
+├── .env.example                    # Template de variaveis
+├── AGENTS.md                       # Este arquivo
+└── README.md                       # Documentacao geral
+```
+
+---
+
+## 4. Inicializacao da Aplicacao
+
+### Startup Sequence (app_factory.py:279-342)
+
+```
+1. _wait_for_database()           # SELECT 1 com retry (30x, 2s intervalo)
+2. Base.metadata.create_all()     # Cria tabelas se nao existirem
+3. ensure_schema_compatibility()  # ADD COLUMN IF NOT EXISTS para todos os campos novos
+4. ensure_initial_admin_user()    # Cria admin se tabela vazia
+5. get_or_create_runtime_settings() # Singleton id=1
+6. _initialize_system_templates() # LGPD + Pesquisa se nao existirem
+7. sync_webhook_urls_on_startup() # Sincroniza URLs de env para o banco
+8. media_storage_path.mkdir()     # Garante diretorio de uploads
+```
+
+### Schema Migration (schema_maintenance.py)
+
+Nao usa Alembic. Em vez disso, roda `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` para cada campo novo. Isso e seguro para rodar repetidamente.
+
+Campos migrados:
+- `users`: `last_login_at`, `last_logout_at`, `last_interaction_at`
+- `runtime_settings`: `outbound_auth_*`, `ai_provider`, `ai_api_key`, `ai_base_url`, `ai_model`
+- `conversations`: `profile_picture_url`
+- `messages`: `updated_at`, `is_edited`, `is_read`, `quoted_message_text`, `quoted_message_sender`
+
+---
+
+## 5. Configuracao e Variaveis de Ambiente
+
+Todas as configuracoes vivem em `app/core/config.py`. O `Settings` usa `pydantic-settings`, le `.env`, ignora campos extras (`extra="ignore"`) e e case-insensitive.
 
 ### Aplicacao
 
-| Variavel | Campo | Tipo/default | Efeito |
+| Variavel | Campo | Tipo/Default | Efeito |
 | --- | --- | --- | --- |
-| `APP_NAME` | `app_name` | `str`, `UFPB Chat Multiatendente` | Nome exibido nos metadados FastAPI. |
-| `APP_VERSION` | `app_version` | `str`, `2.0.0` | Versao logica da aplicacao. |
-| `API_V1_PREFIX` | `api_v1_prefix` | `str`, `/api/v1` | Prefixo das rotas versionadas. |
-| `ENVIRONMENT` | `environment` | `development`, `production` ou `testing` | Controla logging em arquivo quando `production`. |
-| `DEBUG` | `debug` | `bool`, `False` | Exposto em `/api/v1/auth/config`; nao liga debug automaticamente no uvicorn de producao. |
-| `LOG_LEVEL` | `log_level` | `str`, `INFO` | Nivel de log raiz. |
+| `APP_NAME` | `app_name` | `str`, `UFPB Chat Multiatendente` | Nome nos metadados FastAPI |
+| `APP_VERSION` | `app_version` | `str`, `2.0.0` | Versao logica |
+| `API_V1_PREFIX` | `api_v1_prefix` | `str`, `/api/v1` | Prefixo das rotas |
+| `ENVIRONMENT` | `environment` | `development\|production\|testing` | Controla logging |
+| `DEBUG` | `debug` | `bool`, `False` | Exposto em `/auth/config` |
+| `LOG_LEVEL` | `log_level` | `str`, `INFO` | Nivel de log |
 
-### Banco de dados
+### Banco de Dados
 
-| Variavel | Campo | Tipo/default | Efeito |
+| Variavel | Campo | Tipo/Default | Efeito |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | `database_url` | `str`, PostgreSQL local | Usado por `create_engine`. |
-| `DATABASE_POOL_SIZE` | `database_pool_size` | `int`, `5` | Declarado, mas nao passado atualmente ao `create_engine`. |
-| `DATABASE_MAX_OVERFLOW` | `database_max_overflow` | `int`, `10` | Declarado, mas nao usado atualmente. |
-| `DATABASE_POOL_TIMEOUT` | `database_pool_timeout` | `int`, `30` | Declarado, mas nao usado atualmente. |
+| `DATABASE_URL` | `database_url` | `str` | URL de conexao PostgreSQL |
+| `DATABASE_POOL_SIZE` | `database_pool_size` | `int`, `5` | Declarado, nao usado atualmente |
+| `DATABASE_MAX_OVERFLOW` | `database_max_overflow` | `int`, `10` | Declarado, nao usado |
+| `DATABASE_POOL_TIMEOUT` | `database_pool_timeout` | `int`, `30` | Declarado, nao usado |
 
-`app/db/session.py` cria `engine = create_engine(settings.database_url,
-pool_pre_ping=True)` e `SessionLocal` com `autocommit=False`,
-`autoflush=False`, `expire_on_commit=False`.
+`app/db/session.py` cria `engine = create_engine(settings.database_url, pool_pre_ping=True)`.
 
-### Seguranca e sessoes
+### Seguranca
 
-| Variavel | Campo | Tipo/default | Efeito |
+| Variavel | Campo | Tipo/Default | Efeito |
 | --- | --- | --- | --- |
-| `SECRET_KEY` | `secret_key` | `str`, `change-me-in-production` | Assina JWTs. Trocar invalida tokens atuais. |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `access_token_expire_minutes` | `int`, 30 dias | Validade do token usado pelo frontend. |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `refresh_token_expire_days` | `int`, `7` | Usado apenas em `app/core/security.py`; a auth principal nao emite refresh token. |
-| `PASSWORD_MIN_LENGTH` | `password_min_length` | `int`, `8` | Usado por `validate_password_strength` em `app/core/security.py`; rotas atuais usam validacao Pydantic minima. |
+| `SECRET_KEY` | `secret_key` | `str`, `change-me-in-production` | Assina JWTs |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `access_token_expire_minutes` | `int`, `43200` (30 dias) | Validade do token |
+| `PASSWORD_MIN_LENGTH` | `password_min_length` | `int`, `8` | Usado por `validate_password_strength` |
 
-Ha duas camadas de seguranca:
-
-- `app/utils/security.py`: usada de fato pelas rotas de auth (`hash_password`,
-  `verify_password`, `create_access_token`, `decode_access_token`). Token contem
-  `sub` e `exp`, sem campo `type`.
-- `app/core/security.py`: utilitarios mais genericos e parcialmente nao usados
-  pelas rotas atuais. Seus tokens incluem `type` (`access`, `refresh`,
-  `password_reset`).
+**ATENCAO:** Existem DOIS modulos de seguranca:
+- `app/utils/security.py` - USADO pelas rotas atuais (hash_password, verify_password, create_access_token, decode_access_token)
+- `app/core/security.py` - Utilitarios genericos, parcialmente nao usados
 
 Nao misture as duas APIs sem revisar o formato do JWT.
 
-### Admin inicial
+### Admin Inicial
 
-| Variavel | Campo | Tipo/default | Efeito |
+| Variavel | Campo | Tipo/Default | Efeito |
 | --- | --- | --- | --- |
-| `ADMIN_NAME` | `admin_name` | `str`, `Admin Principal` | Nome do admin criado no primeiro boot. |
-| `ADMIN_EMAIL` | `admin_email` | `str`, `admin@example.com` | Email unico do admin inicial. |
-| `ADMIN_BOOTSTRAP_FILE` | `admin_bootstrap_file` | `Path`, `/app/runtime/admin_bootstrap.txt` | Arquivo onde a senha gerada e gravada. |
-
-Importante: `ADMIN_PASSWORD` aparece no README, mas nao existe em `Settings` e
-nao e usado pelo codigo atual. O admin inicial recebe uma senha aleatoria gerada
-por `ensure_initial_admin_user()` e escrita em `ADMIN_BOOTSTRAP_FILE`.
-
-### Webhooks n8n/EvolutionAPI
-
-| Variavel | Campo | Tipo/default | Efeito |
-| --- | --- | --- | --- |
-| `WEBHOOK_TOKEN` | `webhook_token` | `str | None` | Token inbound; aceito em `x-webhook-token`, `x-token`, `Authorization: Bearer` ou query `?token=`. Vazio vira `None`. |
-| `WEBHOOK_TIMEOUT` | `webhook_timeout` | `int`, `30` | Declarado, mas nao usado diretamente nas chamadas atuais. |
-| `WEBHOOK_RETRY_ATTEMPTS` | `webhook_retry_attempts` | `int`, `3` | Declarado, mas sem retry implementado atualmente. |
-| `N8N_WEBHOOK_MODE` | `n8n_webhook_mode` | `test` ou `prod`, default `prod` | Seleciona os campos `_TEST` ou `_PROD`. |
-| `N8N_INBOUND_WEBHOOK_URL_TEST` | `n8n_inbound_webhook_url_test` | URL opcional | URL informativa inbound em modo test. |
-| `N8N_INBOUND_WEBHOOK_URL_PROD` | `n8n_inbound_webhook_url_prod` | URL opcional | URL informativa inbound em modo prod. |
-| `N8N_OUTBOUND_WEBHOOK_URL_TEST` | `n8n_outbound_webhook_url_test` | URL opcional | URL para POST outbound em modo test. |
-| `N8N_OUTBOUND_WEBHOOK_URL_PROD` | `n8n_outbound_webhook_url_prod` | URL opcional | URL para POST outbound em modo prod. |
-| `N8N_OUTBOUND_AUTH_TYPE` | `n8n_outbound_auth_type` | `none`, `header`, `basic`, `jwt` | Tipo de auth usado ao chamar n8n. Valores invalidos viram `none`. |
-| `N8N_OUTBOUND_AUTH_HEADER_NAME` | `n8n_outbound_auth_header_name` | `str | None` | Nome do header se auth `header`. |
-| `N8N_OUTBOUND_AUTH_HEADER_VALUE` | `n8n_outbound_auth_header_value` | `str | None` | Valor do header se auth `header`. |
-| `N8N_OUTBOUND_AUTH_BASIC_USERNAME` | `n8n_outbound_auth_basic_username` | `str | None` | Usuario Basic Auth. |
-| `N8N_OUTBOUND_AUTH_BASIC_PASSWORD` | `n8n_outbound_auth_basic_password` | `str | None` | Senha Basic Auth. |
-| `N8N_OUTBOUND_AUTH_JWT_TOKEN` | `n8n_outbound_auth_jwt_token` | `str | None` | Token Bearer se auth `jwt`. |
-
-Atencao: `.env.example` e README citam `N8N_INBOUND_WEBHOOK_URL` e
-`N8N_OUTBOUND_WEBHOOK_URL`. Esses nomes sem `_TEST`/`_PROD` nao sao campos
-reais do `Settings`; por causa de `extra="ignore"`, eles tendem a ser
-ignorados. Use os campos `_TEST`/`_PROD` e selecione com `N8N_WEBHOOK_MODE`.
-
-Prioridade efetiva:
-
-1. Variaveis de ambiente, quando existem, sobrescrevem dados em
-   `runtime_settings`.
-2. Se nao houver env para outbound URL/token inbound, usa o banco.
-3. Admin pode alterar configuracoes em `/api/v1/admin/webhook-settings`, mas
-   env continua tendo prioridade no proximo carregamento.
-
-### IA
-
-| Variavel | Campo | Tipo/default | Efeito |
-| --- | --- | --- | --- |
-| `AI_WEBHOOK_MODE` | `ai_webhook_mode` | `test` ou `prod`, default `prod` | Seleciona URL de consulta IA. |
-| `AI_WEBHOOK_URL_TEST` | `ai_webhook_url_test` | URL opcional | Webhook n8n para `/api/v1/ai/ask` em test. |
-| `AI_WEBHOOK_URL_PROD` | `ai_webhook_url_prod` | URL opcional | Webhook n8n para `/api/v1/ai/ask` em prod. |
-| `AI_AGENT_WEBHOOK_URL_TEST` | `ai_agent_webhook_url_test` | URL opcional | Webhook de agente automatico em test. |
-| `AI_AGENT_WEBHOOK_URL_PROD` | `ai_agent_webhook_url_prod` | URL opcional | Webhook de agente automatico em prod. |
-| `AI_WEBHOOK_USERNAME` | `ai_webhook_username` | `str | None` | Basic Auth opcional para consulta IA. |
-| `AI_WEBHOOK_PASSWORD` | `ai_webhook_password` | `str | None` | Basic Auth opcional para consulta IA. |
-| `OLLAMA_BASE_URL` | `ollama_base_url` | `https://ollama.sti.ufpb.br/` | Usado em `/api/v1/ai/fetch-models?provider=ollama`. |
-
-O provedor ativo (`gemini`, `openai`, `groq`, `ollama`) e o toggle do agente
-automatico ficam no banco em `RuntimeSettings` e sao administrados por
-`/api/v1/admin/ai-settings`.
-
-### Midia
-
-| Variavel | Campo | Tipo/default | Efeito |
-| --- | --- | --- | --- |
-| `MEDIA_STORAGE_PATH` | `media_storage_path` | `Path`, `/app/uploads` | Diretorio montado como `/uploads`. |
-| `MEDIA_MAX_FILE_SIZE` | `media_max_file_size` | `int`, 25 MB | Limite no servico central de upload. |
-| `MEDIA_ALLOWED_EXTENSIONS` | `media_allowed_extensions` | lista default | Declarada no settings; o servico de midia tambem mantem listas internas por tipo. |
-
-Rota ativa de upload: `uploads_v2`. Ela usa `MediaService.upload_media()` e
-rejeita videos. A rota antiga `app/api/routes/uploads.py` aceita video bruto,
-mas nao e registrada em `ApplicationFactory`.
-
-### CORS, rate limit e externos
-
-| Variavel | Campo | Tipo/default | Efeito |
-| --- | --- | --- | --- |
-| `CORS_ORIGINS` | `cors_origins` | `str`, `*` | String separada por virgulas ou `*`. |
-| `CORS_ALLOW_CREDENTIALS` | `cors_allow_credentials` | `bool`, `True` | Usado pelo middleware CORS. |
-| `CORS_ALLOW_METHODS` | `cors_allow_methods` | `list[str]`, `["*"]` | Usado pelo middleware CORS. |
-| `CORS_ALLOW_HEADERS` | `cors_allow_headers` | `list[str]`, `["*"]` | Usado pelo middleware CORS. |
-| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `rate_limit_requests_per_minute` | `int`, `60` | Declarado; nao aplicado globalmente. |
-| `RATE_LIMIT_BURST_SIZE` | `rate_limit_burst_size` | `int`, `10` | Declarado; nao aplicado globalmente. |
-| `PUBLIC_DOMAIN` | `public_domain` | `str | None` | Retornado em `/api/v1/auth/config`; frontend usa como base absoluta se presente. |
-| `REDIS_URL` | `redis_url` | `str | None` | Declarado; sem uso atual. |
-| `CELERY_BROKER_URL` | `celery_broker_url` | `str | None` | Declarado; sem uso atual. |
-
-## Banco de dados e modelos
-
-O banco e criado automaticamente por `Base.metadata.create_all()`. O projeto
-tambem tem uma migracao Alembic apenas para `message_templates`, mas nao ha
-configuracao Alembic completa visivel na raiz.
-
-### `users`
-
-Modelo: `app/models/user.py`.
-
-- `id`: PK.
-- `name`: nome do usuario, max 120.
-- `email`: unico, indexado, max 255.
-- `password_hash`: hash bcrypt.
-- `must_change_password`: bloqueia rotas que dependem de
-  `get_current_user_password_changed`.
-- `is_admin`: libera rotas administrativas.
-- `is_active`: usuarios inativos recebem 403.
-- `last_login_at`: atualizado no login.
-- `last_logout_at`: atualizado no logout.
-- `last_interaction_at`: usado para expirar sessao depois de 7 dias sem
-  interacao.
-- `created_at`, `updated_at`: timestamps do banco.
-- Relacao: `outbound_messages` com `Message.attendant`.
-
-### `conversations`
-
-Modelo: `app/models/conversation.py`.
-
-- `id`: PK.
-- `contact_phone`: unico, indexado, formato normalizado `+<digitos>`.
-- `contact_name`: opcional.
-- `profile_picture_url`: opcional.
-- `created_at`: timestamp.
-- `last_message_at`: usado para ordenar inbox.
-- Relacao: `messages` com cascade `all, delete-orphan`.
-
-### `messages`
-
-Modelo: `app/models/message.py`.
-
-Enums:
-
-- `MessageDirection`: `inbound`, `outbound`.
-- `MessageType`: `text`, `image`, `audio`, `video`, `document`.
-- `DeliveryStatus`: `received`, `queued`, `sent`, `delivered`, `read`,
-  `failed`.
-
-Campos:
-
-- `id`: PK.
-- `conversation_id`: FK para `conversations.id`.
-- `direction`: origem da mensagem.
-- `message_type`: tipo logico.
-- `delivery_status`: status atual.
-- `text_content`: texto.
-- `media_url`: URL local `/uploads/...` ou URL externa.
-- `media_mime_type`: MIME normalizado.
-- `media_caption`: legenda.
-- `sender_name`, `sender_phone`: origem exibida.
-- `attendant_id`: FK para `users.id` em mensagens outbound.
-- `external_message_id`: ID vindo do WhatsApp/Evolution; usado para dedupe,
-  status update e revogacao.
-- `raw_payload`: payload original ou metadados da API.
-- `error_message`: erro de envio outbound.
-- `created_at`: timestamp.
-
-### `runtime_settings`
-
-Modelo: `app/models/runtime_settings.py`.
-
-Registro singleton com `id=1`.
-
-- Campos outbound webhook: URL e auth (`none`, `header`, `basic`, `jwt`).
-- `inbound_webhook_token`: token de entrada se nao vier por env.
-- Campos IA: `ai_agent_enabled`, `ai_provider`, `ai_api_key`,
-  `ai_base_url`, `ai_model`.
-- `updated_at`.
-
-`app/services/runtime_settings.py` mantem cache em memoria. Sempre chame
-`invalidate_runtime_cache()` depois de escrita administrativa. Quando for
-alterar settings dentro de uma rota, carregue o objeto na sessao atual com
-`db.get(RuntimeSettings, 1)` para evitar objeto cacheado de outra sessao.
-
-### `message_templates`
-
-Modelo: `app/models/template.py`.
-
-- `id`: PK.
-- `title`: max 200.
-- `content`: texto.
-- `category`: max 50.
-- `is_active`: controla listagem normal.
-- `is_system`: marca templates criados pelo sistema.
-- `created_at`, `updated_at`.
-- `created_by`: ID do usuario criador, sem FK declarada.
-
-Observacao importante: comentarios e docstrings dizem que templates de sistema
-nao podem ser apagados/editados, mas `TemplateService.update_template()` e
-`delete_template()` removeram essa protecao. A rota ainda menciona protecao, mas
-o servico permite a alteracao/exclusao.
-
-## Dependencias e autorizacao
-
-Arquivo: `app/api/deps.py`.
-
-- `oauth2_scheme`: espera `Authorization: Bearer <token>`, tokenUrl
-  `/api/v1/auth/login`.
-- `get_current_user(db, token)`: decodifica token com `app/utils/security.py`,
-  exige `sub` numerico, usuario ativo e sessao sem mais de 7 dias de
-  inatividade desde `last_interaction_at` ou `last_login_at`.
-- `get_current_user_password_changed(current_user)`: bloqueia se
-  `must_change_password=True`.
-- `get_current_admin(current_user)`: exige `is_admin=True`.
-
-Use a dependencia mais restritiva compativel com o endpoint. Rotas de leitura
-basica podem usar `get_current_user`; rotas de operacao normal devem usar
-`get_current_user_password_changed`; administracao deve usar `get_current_admin`.
-
-## Rotas HTTP
-
-Todas as rotas abaixo usam prefixo `/api/v1`, exceto `/health`, `/webhook`,
-`/webhook/`, `/api/inbox` e `/api/inbox/`.
-
-### Auth
-
-Router: `app/api/routes/auth.py`, prefixo `/auth`.
-
-- `GET /auth/challenge`
-  - Publico.
-  - Retorna `challenge_id`, `question`, `expires_in_seconds`.
-  - Headers anti-cache.
-  - O desafio expira em 120s e e consumido em uma tentativa.
-
-- `POST /auth/login`
-  - Publico.
-  - Body `LoginRequest`:
-    - `email: EmailStr`
-    - `password: str`, 1..128
-    - `challenge_id: str`, 3..128
-    - `challenge_answer: str`, 1..20
-  - Valida desafio, email/senha, usuario ativo.
-  - Atualiza `last_login_at` e `last_interaction_at`.
-  - Retorna `TokenResponse`.
-
-- `GET /auth/me`
-  - Auth: `get_current_user`.
-  - Retorna `UserRead`.
-
-- `GET /auth/config`
-  - Publico.
-  - Retorna `public_domain`, `api_prefix`, `environment`, `debug`.
-
-- `POST /auth/change-password`
-  - Auth: `get_current_user`.
-  - Body `ChangePasswordRequest`:
-    - `current_password: str`, 1..128
-    - `new_password: str`, 8..128, diferente da atual.
-  - Atualiza hash, remove `must_change_password`, atualiza interacao.
-
-- `POST /auth/logout`
-  - Auth: `get_current_user`.
-  - Atualiza `last_logout_at`.
-
-### Users
-
-Router: `app/api/routes/users.py`, prefixo `/users`.
-
-- `GET /users?active_only=true`
-  - Auth: admin.
-  - Query `active_only: bool = true`.
-  - Lista usuarios, ordenados por `created_at desc`.
-
-- `POST /users`
-  - Auth: admin.
-  - Body `UserCreate`: `name` 2..120, `email`, `password` 8..128.
-  - Cria usuario comum ativo com `must_change_password=True`.
-
-- `POST /users/{user_id}/reset-password`
-  - Auth: admin.
-  - Body `AdminResetPasswordRequest`: `new_password` 8..128.
-  - Nao permite resetar a propria senha por esta rota.
-  - Marca `must_change_password=True`.
-
-- `PATCH /users/{user_id}/status`
-  - Auth: admin.
-  - Body `AdminUserStatusUpdateRequest`: `is_active: bool`.
-  - Nao permite auto-desativacao.
-
-- `DELETE /users/{user_id}`
-  - Auth: admin.
-  - Nao permite excluir a si mesmo nem outro admin.
-
-### Conversations e messages
-
-Router: `app/api/routes/conversations.py`, prefixo `/conversations`.
-
-- `GET /conversations?limit=50&offset=0`
-  - Auth: senha ja trocada.
-  - `limit`: 1..200.
-  - `offset`: >=0.
-  - Lista apenas conversas que possuem mensagens.
-
-- `POST /conversations`
-  - Auth: senha ja trocada.
-  - Body `ConversationCreate`:
-    - `contact_phone: str`
-    - `contact_name: str | None`
-  - Normaliza telefone usando `_normalize_phone`.
-  - Para Brasil, procura variacao com/sem nono digito antes de criar.
-
-- `GET /conversations/contacts/all`
-  - Auth: senha ja trocada.
-  - Lista todos os contatos/conversas, mesmo sem mensagens.
-
-- `GET /conversations/search/messages?q=abc`
-  - Auth: senha ja trocada.
-  - Query `q`: min 3 caracteres.
-  - Busca em `Message.text_content ilike %q%`, max 50.
-
-- `GET /conversations/{conversation_id}/messages?limit=100&offset=0`
-  - Auth: senha ja trocada.
-  - `limit`: 1..500.
-  - Retorna mensagens em ordem cronologica, mesmo buscando do banco em ordem
-    desc.
-
-- `POST /conversations/{conversation_id}/messages`
-  - Auth: senha ja trocada.
-  - Body `OutboundMessageCreate`:
-    - `message_type`: default `text`.
-    - `text_content`: opcional, max 6000.
-    - `media_url`: opcional.
-    - `media_mime_type`: opcional, max 150.
-    - `media_caption`: opcional, max 2000.
-  - Validacao:
-    - `text` exige `text_content`.
-    - `image`, `audio`, `video` exigem `media_url`.
-    - `document` nao e exigido explicitamente pelo validator, mas o frontend
-      envia `media_url`.
-  - Cria mensagem outbound e posta para n8n se houver URL configurada.
-
-- `POST /conversations/{conversation_id}/messages/delete-selected`
-  - Auth: admin.
-  - Body `MessageBulkDeleteRequest`: `message_ids` 1..500, inteiros positivos,
-    deduplicados e ordenados pelo validator.
-  - Apaga mensagens selecionadas. Se conversa ficar vazia, remove a conversa.
-
-- `POST /conversations/{conversation_id}/messages/{message_id}/revoke`
-  - Auth: senha ja trocada.
-  - Exige `external_message_id`.
-  - Monta payload `delete_for_everyone` para n8n.
-  - Se outbound webhook responder OK, marca mensagem local como texto
-    `"🚫 Essa mensagem foi apagada"` e remove midia.
-
-- `DELETE /conversations/{conversation_id}/messages/all`
-  - Auth: admin.
-  - Apaga todas as mensagens da conversa; remove conversa se ficar vazia.
-
-- `DELETE /conversations/messages/all`
-  - Auth: admin.
-  - Apaga todas as mensagens e todas as conversas.
-
-- `GET /conversations/{conversation_id}/export`
-  - Auth: senha ja trocada.
-  - Query obrigatoria `export_date: date`.
-  - Query opcional `start_time=00:00`, `end_time=23:59`,
-    `contact_profile=indefinido`.
-  - Retorna JSON `ConversationExportResponse`.
-
-- `GET /conversations/{conversation_id}/export/pdf`
-  - Auth: senha ja trocada.
-  - Mesmos parametros da exportacao JSON.
-  - Retorna PDF gerado com ReportLab.
+| `ADMIN_NAME` | `admin_name` | `str`, `Admin Principal` | Nome do admin |
+| `ADMIN_EMAIL` | `admin_email` | `str`, `admin@example.com` | Email unico |
+| `ADMIN_BOOTSTRAP_FILE` | `admin_bootstrap_file` | `Path`, `/app/runtime/admin_bootstrap.txt` | Arquivo com senha gerada |
+
+`ADMIN_PASSWORD` aparece no README mas NAO existe em `Settings` e NAO e usado. O admin recebe senha aleatoria em `ensure_initial_admin_user()`.
 
 ### Webhooks
 
-Router versionado: `/api/v1/webhooks`. Router publico sem prefixo:
-`/webhook`, `/webhook/`, `/api/inbox`, `/api/inbox/`.
+| Variavel | Campo | Tipo/Default | Efeito |
+| --- | --- | --- | --- |
+| `WEBHOOK_TOKEN` | `webhook_token` | `str\|None` | Token inbound |
+| `N8N_WEBHOOK_MODE` | `n8n_webhook_mode` | `test\|prod`, `prod` | Seleciona URLs |
+| `N8N_INBOUND_WEBHOOK_URL_TEST` | `n8n_inbound_webhook_url_test` | URL opcional | URL inbound (test) |
+| `N8N_INBOUND_WEBHOOK_URL_PROD` | `n8n_inbound_webhook_url_prod` | URL opcional | URL inbound (prod) |
+| `N8N_OUTBOUND_WEBHOOK_URL_TEST` | `n8n_outbound_webhook_url_test` | URL opcional | URL outbound (test) |
+| `N8N_OUTBOUND_WEBHOOK_URL_PROD` | `n8n_outbound_webhook_url_prod` | URL opcional | URL outbound (prod) |
+| `N8N_OUTBOUND_AUTH_TYPE` | `n8n_outbound_auth_type` | `none\|header\|basic\|jwt` | Tipo de auth outbound |
 
-- `POST /api/v1/webhooks/evolution`
-- `POST /webhook`
-- `POST /api/inbox`
+**IMPORTANTE:** `N8N_INBOUND_WEBHOOK_URL` e `N8N_OUTBOUND_WEBHOOK_URL` (sem `_TEST`/`_PROD`) NAO sao campos reais e sao ignorados por `extra="ignore"`.
 
-Parametros:
+Propriedades computadas (config.py:150-160):
+- `n8n_inbound_webhook_url` -> retorna `_test` ou `_prod` conforme `n8n_webhook_mode`
+- `n8n_outbound_webhook_url` -> retorna `_test` ou `_prod` conforme `n8n_webhook_mode`
+- `ai_agent_webhook_url` -> retorna `_test` ou `_prod` conforme `ai_webhook_mode`
 
-- Body: `dict[str, Any]`, payload bruto EvolutionAPI/n8n.
-- Headers aceitos para token:
-  - `x-webhook-token`
-  - `x-token`
-  - `Authorization: Bearer <token>`
-- Query:
-  - `token=<token>`
+### Midia
 
-Fluxo:
-
-1. `_validate_inbound_token()` carrega token efetivo via env/banco.
-2. Se nao ha token configurado, aceita sem autenticacao de webhook.
-3. `ingest_inbound_message(db, payload)` normaliza e persiste evento.
-4. Sempre agenda `_forward_to_ai_agent(payload)` em background; o forward so
-   executa se `RuntimeSettings.ai_agent_enabled=True` e houver URL de agente IA
-   no ambiente.
-5. Responde `WebhookIngestResponse`.
-
-### Templates
-
-Router: `app/api/routes/templates.py`, prefixo `/templates`.
-
-- `GET /templates/?include_inactive=false`
-  - Auth: usuario autenticado, nao exige senha trocada.
-  - Retorna `MessageTemplateList`.
-
-- `GET /templates/{template_id}`
-  - Auth: usuario autenticado.
-
-- `POST /templates/`
-  - Auth: admin.
-  - Body `MessageTemplateCreate`: `title` 1..200, `content` min 1,
-    `category` 1..50.
-
-- `PUT /templates/{template_id}`
-  - Auth: admin.
-  - Body `MessageTemplateUpdate`: campos opcionais `title`, `content`,
-    `category`, `is_active`.
-
-- `DELETE /templates/{template_id}`
-  - Auth: admin.
-
-- `GET /templates/category/{category}`
-  - Auth: usuario autenticado.
-  - Lista templates ativos da categoria exata.
-
-- `POST /templates/initialize`
-  - Auth: admin.
-  - Cria templates LGPD/Pesquisa se nao existirem.
-
-### Admin
-
-Router: `app/api/routes/admin.py`, prefixo `/admin`.
-
-- `GET /admin/webhook-settings`
-  - Auth: admin.
-  - Retorna config sem expor segredos completos; usa previews.
-
-- `PUT /admin/webhook-settings`
-  - Auth: admin.
-  - Body `WebhookSettingsUpdate`:
-    - `outbound_webhook_url`: opcional, max 1000.
-    - `outbound_auth_type`: `none`, `header`, `basic`, `jwt`.
-    - `outbound_auth_header_name`: max 100.
-    - `outbound_auth_header_value`: max 1000.
-    - `outbound_auth_basic_username`: max 255.
-    - `outbound_auth_basic_password`: max 1000.
-    - `outbound_auth_jwt_token`: max 2000.
-    - `inbound_webhook_token`: max 255.
-  - Strings vazias viram `None`.
-  - Valida requisitos por tipo de auth.
-  - Invalida cache de runtime.
-
-- `GET /admin/ai-settings`
-  - Auth: admin.
-  - Retorna `ai_provider` e `ai_agent_enabled`.
-
-- `PUT /admin/ai-settings`
-  - Auth: admin.
-  - Body `AISettingsUpdate`: `ai_provider` opcional (`gemini`, `openai`,
-    `groq`, `ollama`) e `ai_agent_enabled` opcional.
-  - Invalida cache.
-
-- `DELETE /admin/cleanup/messages`
-  - Auth: admin.
-  - Apaga todas as mensagens.
-
-- `DELETE /admin/cleanup/uploads`
-  - Auth: admin.
-  - Apaga todos os itens de `/app/uploads`. Caminho fixo, nao usa
-    `settings.media_storage_path`.
-
-- `DELETE /admin/cleanup/contacts`
-  - Auth: admin.
-  - Apaga todas as conversas/contatos. Pelo relacionamento, mensagens devem ser
-    removidas em cascade quando ORM/cascade estiver ativo.
-
-### Uploads
-
-Router ativo: `app/api/routes/uploads_v2.py`, prefixo `/uploads`.
-
-- `POST /uploads/media`
-  - Auth: senha ja trocada.
-  - Multipart `file: UploadFile`.
-  - Usa `MediaService.upload_media(file, convert_video=False)`.
-  - Valida tipo, extensao e tamanho.
-  - Rejeita video.
-  - Retorna `UploadMediaResponse`: `filename`, `media_url`, `mime_type`,
-    `size_bytes`.
-
-- `GET /uploads/media/{filename}`
-  - Auth: senha ja trocada.
-  - Retorna metadados do arquivo.
-
-- `DELETE /uploads/media/{filename}`
-  - Auth: senha ja trocada.
-  - Apaga arquivo pelo nome.
-
-- `POST /uploads/cleanup?days=30`
-  - Auth: usuario com senha trocada e `is_admin=True` checado manualmente.
-  - Remove arquivos antigos.
-
-### WhatsApp tools
-
-Router: `app/api/routes/whatsapp_tools.py`, prefixo `/whatsapp`.
-
-- `POST /whatsapp/status-media`
-  - Auth: senha ja trocada.
-  - Multipart `file`.
-  - Rejeita `video/*`.
-  - Usa `MediaService`.
-
-- `GET /whatsapp/media-info`
-  - Auth: senha ja trocada.
-  - Retorna tipos suportados; video aparece como desativado.
+| Variavel | Campo | Tipo/Default | Efeito |
+| --- | --- | --- | --- |
+| `UPLOADS_DIR` | `media_storage_path` | `Path`, `/opt/projetos/chatZapUFPB/uploads` | Diretorio de uploads (via env) |
+| `MEDIA_MAX_FILE_SIZE` | `media_max_file_size` | `int`, 25MB | Limite por arquivo |
+| `MEDIA_ALLOWED_EXTENSIONS` | `media_allowed_extensions` | lista | Extensao aceitas |
 
 ### IA
 
-Router: `app/api/routes/ai.py`, prefixo `/ai`.
+| Variavel | Campo | Tipo/Default | Efeito |
+| --- | --- | --- | --- |
+| `AI_WEBHOOK_MODE` | `ai_webhook_mode` | `test\|prod`, `prod` | Modo IA |
+| `AI_WEBHOOK_URL_TEST` | `ai_webhook_url_test` | URL opcional | Webhook IA (test) |
+| `AI_WEBHOOK_URL_PROD` | `ai_webhook_url_prod` | URL opcional | Webhook IA (prod) |
+| `AI_AGENT_WEBHOOK_URL_TEST` | `ai_agent_webhook_url_test` | URL opcional | Agente automatico (test) |
+| `AI_AGENT_WEBHOOK_URL_PROD` | `ai_agent_webhook_url_prod` | URL opcional | Agente automatico (prod) |
+| `AI_WEBHOOK_USERNAME` | `ai_webhook_username` | `str\|None` | Basic Auth IA |
+| `AI_WEBHOOK_PASSWORD` | `ai_webhook_password` | `str\|None` | Basic Auth IA |
+| `OLLAMA_BASE_URL` | `ollama_base_url` | `str` | URL Ollama |
 
-- `POST /ai/ask`
-  - Auth: senha ja trocada.
-  - Body `AIQuestionRequest`: `question: str`.
-  - Seleciona URL por `AI_WEBHOOK_MODE`.
-  - Envia payload para n8n com pergunta, usuario e provider ativo.
-  - Basic Auth opcional via `AI_WEBHOOK_USERNAME`/`AI_WEBHOOK_PASSWORD`.
-  - Timeout de 120s.
-  - Aceita resposta JSON com `output`, `response` ou `answer`; se nao for JSON,
-    usa texto bruto.
+### CORS e Externos
 
-- `GET /ai/fetch-models?provider=...&key=...`
-  - Auth: senha ja trocada.
-  - Para `provider=ollama`, chama `${OLLAMA_BASE_URL}/api/tags`.
-  - Para demais, retorna listas default. `key` e aceito mas nao usado.
+| Variavel | Campo | Tipo/Default | Efeito |
+| --- | --- | --- | --- |
+| `CORS_ORIGINS` | `cors_origins` | `str`, `*` | Dominios permitidos (virgula) |
+| `PUBLIC_DOMAIN` | `public_domain` | `str\|None` | Dominio para URLs absolutas |
 
-### Health
+---
 
-- `GET /health`: retorna `{"status": "ok"}`.
-- `GET /health/integrations`: mostra URLs/mode detectados para n8n inbound e
-  outbound de ambiente.
+## 6. Banco de Dados e Modelos
 
-## Servico de mensagens e webhooks
+### users (app/models/user.py)
 
-Arquivo: `app/services/messages.py`.
+| Campo | Tipo | Constraints | Descricao |
+| --- | --- | --- | --- |
+| `id` | Integer | PK | ID unico |
+| `name` | String(120) | NOT NULL | Nome |
+| `email` | String(255) | UNIQUE, NOT NULL | Email |
+| `password_hash` | String(255) | NOT NULL | Hash bcrypt |
+| `must_change_password` | Boolean | NOT NULL, default True | Bloqueia ate trocar senha |
+| `is_admin` | Boolean | NOT NULL, default False | Acesso admin |
+| `is_active` | Boolean | NOT NULL, default True | Ativo/inativo |
+| `last_login_at` | TIMESTAMPTZ | nullable | Ultimo login |
+| `last_logout_at` | TIMESTAMPTZ | nullable | Ultimo logout |
+| `last_interaction_at` | TIMESTAMPTZ | nullable | Para expirar sessao (7 dias) |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Criacao |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | Atualizacao |
 
-### Normalizacao de telefone
+Relacao: `outbound_messages` com `Message.attendant`.
 
-`_normalize_phone(raw)`:
+### conversations (app/models/conversation.py)
 
-- Remove tudo que nao for digito.
-- Se tiver 10 ou 11 digitos e nao comecar por `55`, adiciona `55`.
-- Para telefones brasileiros que comecam por `55`, tem 13 digitos e possuem
-  nono digito na posicao esperada, remove o nono digito quando DDD > 28. Isso
-  segue uma regra de JID do WhatsApp citada no codigo.
-- Retorna `+<digitos>` ou `None`.
+| Campo | Tipo | Constraints | Descricao |
+| --- | --- | --- | --- |
+| `id` | Integer | PK | ID unico |
+| `contact_phone` | String(30) | UNIQUE, NOT NULL | Telefone normalizado `+<digitos>` |
+| `contact_name` | String(120) | nullable | Nome do contato |
+| `profile_picture_url` | String(1000) | nullable | URL da foto |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Criacao |
+| `last_message_at` | TIMESTAMPTZ | NOT NULL | Para ordenar inbox |
 
-Nao mude essa funcao sem revisar criacao manual de conversas, deduplicacao de
-contatos e ingestao de webhooks.
+Relacao: `messages` com cascade `all, delete-orphan`.
 
-### Tipos e midia
+### messages (app/models/message.py)
 
-`_extract_type(raw_type, has_media, message)` detecta `document`, `image`,
-`audio`, `video` e cai para `text`.
+**Enums:**
 
-`_persist_inbound_media_from_base64(payload, message_type, mime_type)`:
+- `MessageDirection`: `inbound`, `outbound`
+- `MessageType`: `text`, `image`, `audio`, `video`, `document`
+- `DeliveryStatus`: `received`, `queued`, `sent`, `delivered`, `read`, `failed`
 
-- Procura base64 em chaves `base64`, `media_base64`, `file_base64`,
-  `mediabase64`, `filebase64`, recursivamente.
-- Se nao achar, tenta buscar na EvolutionAPI usando `server_url`, `apikey`,
-  `instance` e `message_id` com endpoint
-  `/chat/getBase64FromMediaMessage/{instance}`.
-- Rejeita midia maior que 25 MB.
-- Salva em `settings.media_storage_path`.
-- Retorna `/uploads/<filename>`.
-- Para video, hoje apenas salva bruto e retorna URL; comentarios indicam modo
-  de teste sem conversao.
+| Campo | Tipo | Constraints | Descricao |
+| --- | --- | --- | --- |
+| `id` | Integer | PK | ID unico |
+| `conversation_id` | Integer | FK conversations, NOT NULL | Conversa |
+| `direction` | Enum | NOT NULL | inbound/outbound |
+| `message_type` | Enum | NOT NULL | text/image/audio/video/document |
+| `delivery_status` | Enum | NOT NULL | Status atual |
+| `text_content` | Text | nullable | Conteudo textual |
+| `media_url` | Text | nullable | URL local `/uploads/...` ou externa |
+| `media_mime_type` | String(150) | nullable | MIME type |
+| `media_caption` | Text | nullable | Legenda |
+| `sender_name` | String(120) | nullable | Nome do remetente |
+| `sender_phone` | String(30) | nullable | Telefone do remetente |
+| `attendant_id` | Integer | FK users, nullable | Atendente (outbound) |
+| `external_message_id` | String(150) | nullable, index | ID WhatsApp/Evolution |
+| `raw_payload` | JSON | nullable | Payload original |
+| `error_message` | Text | nullable | Erro de envio |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Criacao |
+| `updated_at` | TIMESTAMPTZ | nullable | Atualizacao |
+| `is_edited` | Boolean | NOT NULL, default False | Mensagem editada |
+| `is_read` | Boolean | NOT NULL, default False | Mensagem lida |
+| `quoted_message_text` | Text | nullable | Texto da mensagem citada |
+| `quoted_message_sender` | String(120) | nullable | Remetente da mensagem citada |
 
-### Payloads suportados
+### runtime_settings (app/models/runtime_settings.py)
 
-`normalize_webhook_payload(payload)` suporta:
+Singleton com `id=1`:
 
-- `contacts.upsert` e `contacts.update`:
-  - Extrai telefone, nome e foto de perfil.
-  - Retorna evento de atualizacao de contato sem mensagem.
+| Campo | Tipo | Descricao |
+| --- | --- | --- |
+| `outbound_webhook_url` | String(1000) | URL outbound |
+| `outbound_auth_type` | String(20) | none/header/basic/jwt |
+| `outbound_auth_header_name` | String(100) | Nome do header |
+| `outbound_auth_header_value` | String(1000) | Valor do header |
+| `outbound_auth_basic_username` | String(255) | Usuario Basic |
+| `outbound_auth_basic_password` | String(1000) | Senha Basic |
+| `outbound_auth_jwt_token` | String(2000) | Token JWT |
+| `inbound_webhook_token` | String(255) | Token inbound |
+| `ai_agent_enabled` | Boolean | Agente IA ligado |
+| `ai_provider` | String(50) | gemini/openai/groq/ollama |
+| `ai_api_key` | String(500) | Chave da API |
+| `ai_base_url` | String(500) | URL base |
+| `ai_model` | String(100) | Modelo |
 
-- `messages.update`:
-  - Extrai `external_message_id`, telefone e status.
-  - Mapeia status numerico/string para `FAILED`, `QUEUED`, `SENT`,
-    `DELIVERED`, `READ`.
+`app/services/runtime_settings.py` mantem cache em memoria. SEMPRE chame `invalidate_runtime_cache()` depois de escrita.
 
-- `messages.delete`:
-  - Extrai `external_message_id`.
-  - Ingestao marca a mensagem como apagada localmente.
+### message_templates (app/models/template.py)
 
-- Demais eventos de mensagem:
-  - Procura dados em `payload.data`, `payload.body.data`, `payload.body` ou
-    raiz.
-  - Extrai `key`, `sender`, `message`, `extendedTextMessage`,
-    `imageMessage`, `audioMessage`, `videoMessage`, `documentMessage`.
-  - Define `direction` por `key.fromMe`/`root.fromMe`.
-  - Se o sender normalizado for `+558332167336`, forca `from_me=True`.
-  - Se texto ausente em mensagem `text`, grava `[mensagem sem texto]`.
+| Campo | Tipo | Descricao |
+| --- | --- | --- |
+| `id` | Integer | PK |
+| `title` | String(200) | Titulo |
+| `content` | Text | Conteudo |
+| `category` | String(50) | Categoria |
+| `is_active` | Boolean | Ativo |
+| `is_system` | Boolean | Template de sistema |
+| `created_by` | Integer | ID do criador |
 
-### Ingestao inbound
+Templates de sistema sao criados no startup (LGPD + Pesquisa).
 
-`ingest_inbound_message(db, payload)`:
+---
 
-- Chama `normalize_webhook_payload`.
-- Rejeita payload sem telefone.
-- Ignora contato `+558332167336`. Este numero esta hardcoded como numero do
-  bot/institucional para evitar loop.
-- Ignora evento em que `contact_phone` e igual ao sender normalizado do payload.
-- Em `messages.update`, atualiza status de mensagem por `external_message_id`.
-- Em `messages.delete`, marca como `"🚫 Essa mensagem foi apagada"` e remove
-  midia.
-- Cria ou atualiza `Conversation`.
-- Atualiza `profile_picture_url` se vier no payload.
-- Se nao houver foto local, tenta buscar na EvolutionAPI em
-  `/chat/fetchProfilePictureUrl/{instance}`.
-- Em `contacts.upsert`/`contacts.update`, retorna a conversa sem criar
-  mensagem.
-- Atualiza `conversation.last_message_at`.
-- Evita duplicata por `external_message_id`.
-- Para webhook outbound recente sem `external_message_id`, tenta casar mensagem
-  existente da mesma conversa nos ultimos 5 minutos pelo mesmo texto e atualiza
-  o ID externo.
-- Cria `Message` com `RECEIVED` para inbound e `SENT` para outbound confirmado.
+## 7. Dependencias e Autorizacao
 
-### Envio outbound
+### Arquivo: app/api/deps.py
 
-`create_outbound_message(db, conversation, attendant, data)`:
+- `oauth2_scheme`: espera `Authorization: Bearer <token>`
+- `get_current_user(db, token)`:
+  - Decodifica JWT com `app/utils/security.py`
+  - Exige `sub` numerico
+  - Usuario ativo
+  - Sessao sem mais de 7 dias de inatividade
+- `get_current_user_password_changed(current_user)`: bloqueia se `must_change_password=True`
+- `get_current_admin(current_user)`: exige `is_admin=True`
 
-- Cria mensagem `OUTBOUND` com status inicial `QUEUED`.
-- Atualiza `conversation.last_message_at` e `attendant.last_interaction_at`.
-- Carrega `RuntimeSettings` e URL outbound efetiva.
-- Se nao houver URL outbound, marca `SENT` e retorna.
-- Monta payload para n8n:
-  - `conversation_id`
-  - `message_id`
-  - `to`
-  - `message_type`
-  - `text`
-  - `media_url`
-  - `media_mime_type`
-  - `media_caption`
-  - `attendant`
-- Auth outbound:
-  - `header`: adiciona header configurado.
-  - `basic`: usa tuple `(username, password)` do httpx.
-  - `jwt`: adiciona `Authorization: Bearer <token>`.
-- POST com timeout 20s.
-- Sucesso -> `SENT`.
-- `httpx.HTTPError` -> `FAILED` e grava `error_message`.
+**Hierarquia de dependencias:**
+```
+get_current_user -> get_current_user_password_changed -> get_current_admin
+```
 
-## Frontend `/inbox`
+Use a mais restritiva compativel com o endpoint.
 
-O frontend e vanilla JS, sem build step. FastAPI serve `index.html`, `app.js` e
-`styles.css` diretamente.
+---
 
-### Estado global
+## 8. Rotas HTTP
 
-`app/static/inbox/app.js` define:
+### Auth (app/api/routes/auth.py, prefixo `/auth`)
 
-- `apiPrefix = "/api/v1"`.
-- `state.token`: JWT no `localStorage` (`ufpb_token`).
-- `state.user`: usuario logado.
-- `state.conversations`: conversas da sidebar.
-- `state.catalogContacts`: criado dinamicamente em `loadCatalog()`.
-- `state.messagesByConversation`: cache por conversa.
-- `state.selectedConversationId`: conversa ativa.
-- `state.messageSignaturesByConversation`: assinatura para evitar rerender.
-- `state.passwordForced`: controla modal de troca obrigatoria.
-- `state.loginChallengeId`: desafio atual.
-- `state.messagePollTimer`: polling de mensagens a cada 2s.
-- `state.conversationPollTimer`: polling de conversas a cada 5s.
-- `state.messageOffsets`, `state.hasMoreMessages`, `state.messagesPerPage`:
-  scroll infinito de mensagens.
-- `state.audioContext`, `state.analyser`, `state.activeRecorder`,
-  `state.activeStream`: gravacao de audio.
-- `state.messageTemplates`: templates carregados do backend ou fallback local.
-- `state.publicConfig`: resposta de `/auth/config`; se `public_domain` existe,
-  `apiRequest()` usa URL absoluta.
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `GET` | `/auth/challenge` | Publico | Desafio anti-bots (expira 120s) |
+| `POST` | `/auth/login` | Publico | Login com challenge |
+| `GET` | `/auth/me` | JWT | Dados do usuario |
+| `GET` | `/auth/config` | Publico | public_domain, environment, debug |
+| `POST` | `/auth/change-password` | JWT | Troca de senha |
+| `POST` | `/auth/logout` | JWT | Logout |
 
-### Mapa `els`
+### Users (app/api/routes/users.py, prefixo `/users`)
 
-`els` faz `document.getElementById(...)` para quase toda a UI. Qualquer mudanca
-em IDs no HTML precisa ser refletida em `app.js`. Grupos sensiveis:
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `GET` | `/users?active_only=true` | Admin | Lista usuarios |
+| `POST` | `/users` | Admin | Cria usuario (must_change_password=True) |
+| `POST` | `/users/{id}/reset-password` | Admin | Reseta senha |
+| `PATCH` | `/users/{id}/status` | Admin | Ativa/desativa |
+| `DELETE` | `/users/{id}` | Admin | Remove (nao admin a si mesmo) |
 
-- Login: `loginOverlay`, `loginForm`, `loginEmail`, `loginPassword`,
-  `challengeQuestion`, `challengeAnswer`, `refreshChallengeBtn`.
-- Senha: `passwordOverlay`, `passwordForm`, `currentPassword`, `newPassword`.
-- Admin usuarios: `adminSection`, `adminUsersTableBody`, `newUserName`,
-  `newUserEmail`, `newUserPassword`.
-- Conversas/mensagens: `conversationList`, `chatTitle`, `chatSubtitle`,
-  `messageCountBadge`, `messages`.
-- Composer: `messageType`, `textContent`, `mediaUrl`, `mediaCaption`,
-  `mediaMimeType`, `imageFileInput`, `uploadImageBtn`, `recordAudioBtn`,
-  `sendMessageBtn`.
-- Templates: `templatesOverlay`, `templatesList`, `openTemplatesManagerBtn`.
-- Exportacao: `exportOverlay`, `exportDate`, `exportStartTime`,
-  `exportEndTime`, `exportProfile`.
-- IA: `aiConsultOverlay`, `aiQuestion`, `aiResponse`, `aiHistory`,
-  `configAiProvider`, `configAiAgentEnabled`.
+### Conversations (app/api/routes/conversations.py, prefixo `/conversations`)
 
-### Fluxo de login no frontend
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `GET` | `/conversations` | JWT | Lista conversas com mensagens |
+| `POST` | `/conversations` | JWT | Cria conversa manual |
+| `GET` | `/conversations/contacts/all` | JWT | Todos os contatos |
+| `GET` | `/conversations/search/messages?q=` | JWT | Busca em mensagens (min 3 chars) |
+| `GET` | `/conversations/{id}/messages` | JWT | Lista mensagens |
+| `POST` | `/conversations/{id}/messages` | JWT | Envia mensagem outbound |
+| `PATCH` | `/conversations/{id}/messages/{id}/edit` | JWT | Edita mensagem outbound |
+| `POST` | `/conversations/{id}/messages/{id}/revoke` | JWT | Revoga mensagem |
+| `POST` | `/conversations/{id}/messages/read` | JWT | Marca como lida |
+| `POST` | `/conversations/{id}/messages/delete-selected` | Admin | Delete em lote |
+| `DELETE` | `/conversations/{id}/messages/all` | Admin | Apaga todas da conversa |
+| `DELETE` | `/conversations/messages/all` | Admin | Apaga tudo |
+| `GET` | `/conversations/{id}/export` | JWT | Export JSON |
+| `GET` | `/conversations/{id}/export/pdf` | JWT | Export PDF |
 
-1. `bootstrap()` chama `fetchLoginChallenge(true)`.
-2. Se nao ha token, mostra `loginOverlay`.
-3. `login(email, password)` exige desafio carregado e resposta preenchida.
-4. POST `/auth/login`.
-5. Salva token/usuario em localStorage.
-6. Se `must_change_password`, abre modal obrigatorio.
-7. Caso contrario chama `initializeInbox()`.
+### Webhooks (app/api/routes/webhook.py)
 
-### Inicializacao da inbox
+**Rotas versionadas:**
+- `POST /api/v1/webhooks/evolution`
 
-`initializeInbox()`:
+**Rotas publicas (sem prefixo /api/v1):**
+- `POST /webhook`
+- `POST /api/inbox`
 
-- limpa polls antigos;
-- carrega `/auth/config`;
-- carrega templates;
-- se admin, carrega usuarios e AI settings;
-- carrega conversas;
-- inicia polling:
-  - conversas: 5000ms;
-  - mensagens: 2000ms;
-  - polling de mensagens pausa se houver audio/video tocando.
+Headers para token: `x-webhook-token`, `x-token`, `Authorization: Bearer`, query `?token=`
 
-### Mensagens e renderizacao
+Todas chamam `_handle_webhook_payload()` que:
+1. Valida token
+2. Chama `ingest_inbound_message()`
+3. Agenda `_forward_to_ai_agent()` em background
 
-- `loadMessages()` usa `limit=state.messagesPerPage` e `offset`.
-- O backend retorna ordem cronologica.
-- `buildMessageSignature()` evita rerender se nada mudou.
-- `renderMessages()` suporta render completo, append e prepend.
-- Midias:
-  - imagem: `<img>`.
-  - documento: card com link.
-  - audio: `<audio controls>`.
-  - texto apagado: classe `deleted-msg`.
-- `formatWhatsAppText()` aplica formatacao estilo WhatsApp para negrito,
-  italico, tachado e codigo.
+### Admin (app/api/routes/admin.py, prefixo `/admin`)
 
-### Uploads e gravacao
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `GET` | `/admin/webhook-settings` | Admin | Config webhooks |
+| `PUT` | `/admin/webhook-settings` | Admin | Atualiza webhooks |
+| `GET` | `/admin/ai-settings` | Admin | Config IA |
+| `PUT` | `/admin/ai-settings` | Admin | Atualiza IA |
+| `DELETE` | `/admin/cleanup/messages` | Admin | Apaga todas mensagens |
+| `DELETE` | `/admin/cleanup/uploads` | Admin | Apaga todas midias |
+| `DELETE` | `/admin/cleanup/contacts` | Admin | Apaga todas conversas |
 
-- `uploadMediaFile(file)` faz POST multipart para `/api/v1/uploads/media`.
-- Imagem/documento local usa `uploadImageFromLocal()`.
-- Gravacao de audio usa `MediaRecorder`, gera `audio/webm` e anexa via upload.
-- Video recording esta desativado no JS.
+### Templates (app/api/routes/templates.py, prefixo `/templates`)
 
-### Templates
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `GET` | `/templates` | JWT | Lista templates |
+| `GET` | `/templates/{id}` | JWT | Template especifico |
+| `POST` | `/templates` | Admin | Cria template |
+| `PUT` | `/templates/{id}` | Admin | Atualiza template |
+| `DELETE` | `/templates/{id}` | Admin | Remove template |
+| `GET` | `/templates/category/{category}` | JWT | Por categoria |
+| `POST` | `/templates/initialize` | Admin | Cria LGPD/Pesquisa |
 
-- Digitar exatamente `/` no campo de texto abre o modal de templates.
-- `loadTemplates()` primeiro testa backend via `/auth/me`; se falhar, usa
-  fallback local LGPD/Pesquisa.
-- Admin pode criar, editar e excluir templates no modal.
+### Uploads (app/api/routes/uploads_v2.py, prefixo `/uploads`)
 
-### IA no frontend
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `POST` | `/uploads/media` | JWT | Upload (rejeita video) |
+| `GET` | `/uploads/media/{filename}` | JWT | Info do arquivo |
+| `DELETE` | `/uploads/media/{filename}` | JWT | Remove arquivo |
+| `POST` | `/uploads/cleanup?days=30` | Admin | Limpa arquivos antigos |
 
-- Botao `Consultar IA` abre modal.
-- `askAi()` envia `{question}` para `/api/v1/ai/ask`.
-- Historico e apenas em memoria da pagina.
-- Admin pode alterar provider e toggle de agente automatico.
+### IA (app/api/routes/ai.py, prefixo `/ai`)
 
-### Exportacao
+| Metodo | Rota | Auth | Descricao |
+| --- | --- | --- | --- |
+| `POST` | `/ai/ask` | JWT | Pergunta para IA |
+| `GET` | `/ai/fetch-models?provider=` | JWT | Lista modelos |
 
-- `exportCurrentDay()` abre modal para data atual.
-- HTML e gerado no frontend a partir de `/conversations/{id}/export`.
-- PDF e baixado direto de `/conversations/{id}/export/pdf`.
+### Health (app/api/routes/health.py)
 
-## Scripts e Docker
+- `GET /health` - retorna `{"status": "ok"}`
+- `GET /health/integrations` - mostra URLs/mode de webhooks
+
+---
+
+## 9. Servico de Mensagens e Webhooks
+
+### Arquivo: app/services/messages.py (~1350 linhas)
+
+Este e o coracao do sistema. Contem toda a logica de ingestao, normalizacao e envio.
+
+### Funcoes Principais
+
+#### `_normalize_phone(raw) -> str | None`
+- Remove tudo que nao for digito
+- Adiciona `55` para telefones BR de 10/11 digitos
+- Remove 9o digito para DDD > 28 (regra JID WhatsApp)
+- Retorna `+<digitos>` ou `None`
+
+#### `_extract_type(raw_type, has_media, message) -> MessageType`
+Detecta tipo da mensagem por:
+1. `raw_type` (string com "document", "image", "audio", "video")
+2. Chaves no `message` (documentMessage, imageMessage, etc.)
+3. Fallback para TEXT
+
+#### `_download_whatsapp_media(data, message_id, instance, message_type, mime_type)`
+- Prioriza base64 em `data.message.base64` (ou `data.base64`)
+- Fallback: download da CDN via EvolutionAPI
+- Salva em `settings.media_storage_path`
+- Retorna `/uploads/<filename>`
+- Suporta dict com chaves numericas e string base64
+
+#### `_download_profile_picture(payload, contact_phone)`
+- Busca URL da foto no payload ou via EvolutionAPI
+- Salva localmente com prefixo `profile_`
+- Retorna `/uploads/<filename>`
+
+#### `normalize_webhook_payload(payload) -> dict`
+Normaliza payload bruto em evento estruturado:
+- `event`: tipo do evento (messages.upsert, messages.update, contacts.upsert, etc.)
+- `contact_phone`: telefone normalizado
+- `contact_name`: nome do contato
+- `message_type`: MessageType
+- `text_content`: texto
+- `media_url`: URL local
+- `media_mime_type`: MIME
+- `sender`: remetente
+- `direction`: inbound/outbound
+- `key_id`: ID da mensagem
+- `status`: DeliveryStatus (para updates)
+- `delivery_status`: mapeado de string/numero
+
+**Eventos suportados:**
+- `contacts.upsert` / `contacts.update` - atualizacao de contato
+- `messages.upsert` - nova mensagem (inclui `secretEncryptedMessage`, `editedMessage`)
+- `messages.update` - atualizacao de status ou edicao
+- `messages.delete` - marcacao como apagada
+- `messages.edited` - futuro (EvolutionAPI v2.3.7 nao tem)
+
+#### `ingest_inbound_message(db, payload) -> Message | Conversation | None`
+1. Chama `normalize_webhook_payload()`
+2. Rejeita sem telefone
+3. Ignora `contact_phone == "+558332167336"` (bot)
+4. Ignora `contact_phone == sender` (auto-mensagem)
+5. `messages.update` -> atualiza status
+6. `messages.delete` -> marca apagada
+7. Cria ou atualiza `Conversation`
+8. Atualiza `profile_picture_url`
+9. `contacts.upsert` -> retorna conversa sem criar mensagem
+10. Evita duplicata por `external_message_id`
+11. Outbound recente sem `external_id` -> tenta casar por texto
+12. Cria `Message`
+
+#### `create_outbound_message(db, conversation, attendant, data) -> Message`
+1. Cria `Message` OUTBOUND com QUEUED
+2. Atualiza `conversation.last_message_at` e `attendant.last_interaction_at`
+3. Busca URL outbound (env > banco)
+4. Monta payload para n8n
+5. Auth conforme configuracao
+6. POST timeout 20s
+7. Sucesso -> SENT, erro -> FAILED
+
+### Deteccao de Edicao
+
+**messages.update (EvolutionAPI v2.3.7):**
+```
+data.update.message.editedMessage.message.conversation  # caminho primario
+data.update.message.editedMessage.conversation           # fallback
+data.message.conversation                                # fallback
+```
+Procura texto recursivamente nas chaves do dict.
+
+**messages.upsert com secretEncryptedMessage:**
+- Detecta `data.get("messageType") == "secretEncryptedMessage"`
+- Extrai `targetMessageKey.id` para encontrar mensagem original
+- Marca `is_edited=True`, nao cria duplicata
+
+**messages.upsert com editedMessage:**
+- Detecta `data.message.editedMessage` ou `data.editedMessage`
+- Retorna como evento `messages.edited`
+
+### Deduplicacao
+
+- Por `external_message_id`: evita duplicatas diretas
+- Por texto + janela de 2 minutos: evita duplicatas de outbound sem ID
+- Comparacao Python (nao SQL) para lidar com `NULL = NULL` (retorna NULL, nao TRUE)
+
+### Status Mapping
+
+| EvolutionAPI | Sistema | Observacao |
+| --- | --- | --- |
+| `SERVER_ACK`, `"1"` | `SENT` | Servidor recebeu |
+| `DELIVERY_ACK`, `"2"` | `DELIVERED` | Entregue ao dispositivo |
+| `PLAYED`, `"3"` | `READ` | Audio reproduzido |
+| `READ`, `"4"` | `READ` | Visualizado |
+| `ERROR`, `"5"` | `FAILED` | Falha no envio |
+| `SENDING`, `"6"` | `QUEUED` | Em fila |
+| `PROGRESS`, `"7"` | `SENT` | Em progresso |
+
+Mapping usa string-first: tenta `status_string_map` antes de `int()` com try/except.
+
+---
+
+## 10. Frontend
+
+### Arquivos
+
+- `app/static/inbox/index.html` - HTML principal
+- `app/static/inbox/app.js` - Logica (~3000 linhas)
+- `app/static/inbox/styles.css` - Estilos (~2800 linhas)
+- `app/static/inbox/img/` - Logos (brasao.png, sti_logo.png)
+
+### Estado Global (app.js)
+
+| Variavel | Descricao |
+| --- | --- |
+| `state.token` | JWT no localStorage (`ufpb_token`) |
+| `state.user` | Usuario logado |
+| `state.conversations` | Conversas da sidebar |
+| `state.messagesByConversation` | Cache por conversa |
+| `state.selectedConversationId` | Conversa ativa |
+| `state.messagePollTimer` | Polling de mensagens (2s) |
+| `state.conversationPollTimer` | Polling de conversas (5s) |
+| `state.messageOffsets` / `state.hasMoreMessages` | Scroll infinito |
+| `state.audioContext` / `state.analyser` | Gravacao de audio |
+| `state.messageTemplates` | Templates carregados |
+| `state.publicConfig` | Resposta de `/auth/config` |
+
+### Objeto `els`
+
+Mapeamento de IDs do HTML para variaveis JS. Grupos sensiveis:
+
+- Login: `loginOverlay`, `loginForm`, `loginEmail`, `loginPassword`, `challengeQuestion`, `challengeAnswer`
+- Senha: `passwordOverlay`, `passwordForm`, `currentPassword`, `newPassword`
+- Chat: `conversationList`, `chatTitle`, `chatSubtitle`, `messageCountBadge`, `messages`
+- Composer: `messageType`, `textContent`, `mediaUrl`, `mediaCaption`, `imageFileInput`, `sendMessageBtn`
+- Templates: `templatesOverlay`, `templatesList`
+- Export: `exportOverlay`, `exportDate`, `exportStartTime`, `exportEndTime`
+- IA: `aiConsultOverlay`, `aiQuestion`, `aiResponse`, `configAiProvider`, `configAiAgentEnabled`
+
+### Funcionalidades
+
+- **Login com challenge-response**
+- **Sidebar** ordenada por `last_message_at`
+- **Chat** com mensagens (texto, imagem, audio, documento)
+- **Composer** com upload, gravacao audio, templates (trigger `/`)
+- **Edicao inline** - botao em mensagens outbound de texto
+- **Revogacao** - botao de apagar
+- **Mensagens nao lidas** - indicador visual
+- **Citacao** - visualizacao de mensagem respondida
+- **Modal de midia** - clique em imagem abre em tamanho completo
+- **Preview de arquivo** - thumbnail apos upload
+- **Templates** - modal de selecao
+- **Exportacao** - PDF e HTML
+- **Config IA** - toggle e selecao de provider
+
+### Scroll Preservation
+
+`renderMessages()` verifica `wasAtBottom` antes de substituir `innerHTML`. So faz scroll to bottom se o usuario ja estava no fundo ou se e o primeiro render.
+
+### buildMessageBody()
+
+Gera HTML interno da mensagem:
+- `.message-quote` para mensagens citadas
+- `<img>` para imagens com `openMediaModal()`
+- `<video>` para videos com controles
+- `<audio>` para audios
+- `<a>` para documentos
+- `.message-edited` para mensagens editadas
+- Texto com `formatWhatsAppText()` (negrito, italico, tachado, codigo)
+
+---
+
+## 11. Scripts e Docker
 
 ### Dockerfile
 
-- Base `python:3.12-slim`.
-- Instala `ffmpeg`.
-- Instala `requirements.txt`.
-- Copia `app` e `scripts`.
-- Cria `/app/uploads`, `/app/runtime`, `/app/logs`.
-- Healthcheck em `/health`.
-- CMD roda `python /app/scripts/startup_check.py` e depois uvicorn.
+- Base: `python:3.12-slim`
+- Instala FFmpeg
+- Copia `app/` e `scripts/`
+- Cria `/opt/projetos/chatZapUFPB/uploads`, `/app/runtime`, `/app/logs`
+- Healthcheck via HTTP em `/health`
+- CMD: `startup_check.py` + uvicorn
 
 ### docker-compose.yml
 
-Servico `automacoes_sti_ufpb_whatsapp_fastapi`:
+```yaml
+services:
+  automacoes_sti_ufpb_whatsapp_fastapi:
+    build: .
+    env_file: .env
+    ports: ["8000:8000"]
+    volumes:
+      - ./uploads:/opt/projetos/chatZapUFPB/uploads    # MIDIA
+      - ./runtime:/app/runtime                          # Bootstrap
+      - ./logs:/app/logs                                # Logs
+    healthcheck: ...
+```
 
-- build local via `Dockerfile`;
-- `env_file: .env`;
-- exige `DATABASE_URL`;
-- porta `8000:8000`;
-- volumes:
-  - `./uploads:/app/uploads`
-  - `./runtime:/app/runtime`
-  - `./logs:/app/logs`
-- healthcheck em `/health`.
+### Docker Volumes - Explicacao Detalhada
 
-Nao ha servico Postgres no compose atual; `DATABASE_URL` deve apontar para um
-PostgreSQL externo/acessivel.
+**Como funciona um volume Docker:**
+Um volume e uma ponte entre uma pasta do servidor (host) e uma pasta dentro do container.
 
-### scripts
+**No docker-compose.yml:**
+```yaml
+volumes:
+  - ./uploads:/opt/projetos/chatZapUFPB/uploads
+```
 
-- `scripts/startup_check.py`: verifica diretorios `/app/uploads`,
-  `/app/runtime`, `/app/logs` e presenca de FFmpeg. Nao falha se FFmpeg faltar.
-- `scripts/verify_dependencies.py`: diagnostico de FFmpeg, FFprobe, pacotes
-  Python e recursos do sistema. Mais adequado para Linux/container.
-- `scripts/check_ffmpeg.py`: teste detalhado de FFmpeg/FFprobe e conversao.
-- `scripts/test_compression.py`: teste historico de compressao de video.
-- `scripts/test_webhook.py`: POST manual para `http://127.0.0.1:8000/api/inbox`
-  com payload de documento.
-- `scripts/debug_download.py`: le payload de stdin e testa download base64 da
-  EvolutionAPI.
-- `scripts/migrate_enum.py`: adiciona `delivered` e `read` ao enum PostgreSQL
-  `delivery_status`.
-- `scripts/init_templates.py`: cria templates LGPD/Pesquisa manualmente; hoje o
-  startup ja faz isso.
-- `scripts/deploy.sh`: script historico de deploy que espera
-  `docker-compose.production.yml` e Alembic. Esse arquivo compose nao existe na
-  raiz atual.
+Isso significa: "monte a pasta `uploads` do host dentro do container em `/opt/projetos/chatZapUFPB/uploads`".
 
-## Validacoes executadas nesta revisao
+**No EasyPanel:**
+O caminho fisico real NO SERVIDOR nao e `./uploads`, mas sim:
+```
+/etc/easypanel/projects/automations-01/whatsapp_fastapi/volumes/uploads
+```
+
+Essa pasta e montada dentro do container em `/opt/projetos/chatZapUFPB/uploads`.
+
+**Fluxo completo:**
+```
+Servidor (host)                                    Container
+─────────────────────────────────────────────────────────────
+/etc/easypanel/projects/.../uploads  ──mount──>  /opt/projetos/chatZapUFPB/uploads
+```
+
+**Por que `/uploads` nao existe:**
+Ao tentar acessar `/uploads` dentro do container, ocorre "No such file or directory". O caminho correto e `/opt/projetos/chatZapUFPB/uploads`.
+
+**Persistencia:**
+Qualquer arquivo gravado nessa pasta dentro do container e armazenado fisicamente na pasta correspondente do servidor, permitindo que os dados permanecam mesmo que o container seja recriado.
+
+### scripts/startup_check.py
+
+Executado no CMD do Dockerfile:
+1. Verifica FFmpeg (opcional - nao falha se faltar)
+2. Verifica diretorios (`/opt/projetos/chatZapUFPB/uploads`, `/app/runtime`, `/app/logs`)
+3. Testa permissoes de escrita
+
+### Outros Scripts
+
+- `verify_dependencies.py` - Diagnostico completo (FFmpeg, FFprobe, pacotes)
+- `check_ffmpeg.py` - Teste detalhado de FFmpeg
+- `test_webhook.py` - POST manual para `/api/inbox`
+- `debug_download.py` - Teste de download base64
+- `migrate_enum.py` - Migracao de enums PostgreSQL
+- `init_templates.py` - Templates LGPD/Pesquisa
+
+---
+
+## 12. Armilhas Conhecidas
+
+### Configuracao
+
+1. **`N8N_INBOUND_WEBHOOK_URL` e `N8N_OUTBOUND_WEBHOOK_URL`** (sem `_TEST`/`_PROD`) NAO sao campos reais do `Settings` e sao ignorados por `extra="ignore"`. Use os campos `_TEST`/`_PROD`.
+
+2. **`ADMIN_PASSWORD`** aparece no README mas NAO existe em `Settings`. O admin recebe senha aleatoria.
+
+3. **Duas APIs de seguranca**: `app/utils/security.py` (usada pelas rotas) e `app/core/security.py` (genericas). Nao misture.
+
+4. **`RuntimeSettings`** e um singleton cacheado. Para escrita, carregue na sessao atual e chame `invalidate_runtime_cache()` apos commit.
+
+### Codigo
+
+5. **Numero hardcoded** `+558332167336` em `app/services/messages.py` - ajuste se mudar o numero do bot.
+
+6. **`uploads.py`** e rota legada nao registrada - use `uploads_v2.py`.
+
+7. **`MediaService.get_media_info()`** referencia `video_converter` nao importado - caminho so e atingido com video no storage.
+
+8. **`escapeHtml`** declarado duas vezes em `app.js` - a segunda sobrescreve a primeira.
+
+9. **`recordPreview`** referenciado em `app.js` mas nao existe no `index.html` - pode quebrar ao abrir gravacao.
+
+10. **`styles.css`** tem bloco de IA duplicado e trecho com `transform: scale(1)` solto dentro de `@media`.
+
+11. **CSS brace mismatch** pre-existente por volta da linha 2788 em `styles.css` (documentado, nao corrigido).
+
+### Infra
+
+12. **`docker-compose.production.yml`** e `scripts/deploy.sh` esperam arquivos que nao existem.
+
+13. **`init.sql`** contem apenas comentario deprecado - bootstrap agora e feito pelo app.
+
+---
+
+## 13. Checklist para Novos Agentes
+
+### Antes de Alterar
+
+- [ ] Leia este arquivo (AGENTS.md) e o modulo exato que vai tocar
+- [ ] Rode `git status --short` e preserve alteracoes locais nao suas
+- [ ] Confirme se a rota/servico que vai editar esta registrado em `ApplicationFactory`
+- [ ] Se mexer em env, atualize `Settings`, `.env.example` e documentacao juntos
+- [ ] Se mexer em modelo, revise schema Pydantic, rotas, frontend e `schema_maintenance.py`
+- [ ] Se mexer no HTML, revise todas as chaves em `els` do `app.js`
+- [ ] Se mexer no fluxo de mensagens, teste inbound, outbound, update, delete/revoke e deduplicacao
+
+### Depois de Alterar
+
+- [ ] Rode `python -m compileall app scripts`
+- [ ] Rode `node --check app/static/inbox/app.js` se o JS mudou
+- [ ] Se possivel, suba a aplicacao e teste:
+  - [ ] `/health`
+  - [ ] `/api/v1/docs`
+  - [ ] Login com challenge
+  - [ ] Listagem de conversas
+  - [ ] Envio de mensagem
+  - [ ] Upload de midia
+  - [ ] Webhook inbound com token
+  - [ ] Telas admin se afetar
+
+### Regras de Codigo
+
+- Nao adicione comentarios ou docstrings exceto se pedido explicitamente
+- Mantenha a style existente (Python: 4 espacos, JS: 2 espacos)
+- Nao assuma bibliotecas disponiveis - verifique `requirements.txt`
+- Nao commite secrets ou chaves
+- Use `get_settings()` para acessar configuracao (nao `os.getenv` direto)
+- Para escrever no banco, sempre use a sessao da requisicao (nunca crie sessao manualmente em rotas)
+
+---
+
+## 14. Mapa Rapido de Arquivos
+
+### Auth e Usuarios
+- `app/api/routes/auth.py`
+- `app/api/routes/users.py`
+- `app/api/deps.py`
+- `app/utils/security.py`
+- `app/services/login_challenge.py`
+- `app/services/bootstrap.py`
+
+### Conversas e Mensagens
+- `app/api/routes/conversations.py`
+- `app/api/routes/webhook.py`
+- `app/services/messages.py`
+- `app/services/conversation_export.py`
+- `app/models/conversation.py`
+- `app/models/message.py`
+- `app/schemas/conversation.py`
+- `app/schemas/message.py`
+
+### Admin/Settings
+- `app/api/routes/admin.py`
+- `app/models/runtime_settings.py`
+- `app/schemas/admin.py`
+- `app/services/runtime_settings.py`
+- `app/services/webhook_utils.py`
+- `app/services/webhook_sync.py`
+
+### Templates
+- `app/api/routes/templates.py`
+- `app/models/template.py`
+- `app/schemas/template.py`
+- `app/services/template_service.py`
+
+### Midia
+- `app/api/routes/uploads_v2.py`
+- `app/api/routes/whatsapp_tools.py`
+- `app/services/media/media_service.py`
+- `app/schemas/upload.py`
+
+### IA
+- `app/api/routes/ai.py`
+- `app/schemas/ai.py`
+- `app/schemas/admin.py`
+- `app/services/runtime_settings.py`
+
+### Frontend
+- `app/static/inbox/index.html`
+- `app/static/inbox/app.js`
+- `app/static/inbox/styles.css`
+- `app/static/inbox/img/brasao.png`
+- `app/static/inbox/img/sti_logo.png`
+
+### Infra
+- `Dockerfile`
+- `docker-compose.yml`
+- `.env.example`
+- `.dockerignore`
+- `.gitignore`
+- `requirements.txt`
+
+---
+
+## Validacoes Executadas
 
 Durante a criacao deste guia foram executados:
 
@@ -944,139 +979,4 @@ python -m compileall app scripts
 node --check app/static/inbox/app.js
 ```
 
-Ambos passaram sem erro de sintaxe. Nao foram executados testes de integracao
-com banco, n8n, EvolutionAPI ou navegador.
-
-## Armadilhas conhecidas antes de modificar
-
-1. `N8N_INBOUND_WEBHOOK_URL`, `N8N_OUTBOUND_WEBHOOK_URL` e `ADMIN_PASSWORD`
-   aparecem em docs/exemplo, mas nao sao campos efetivos de `Settings`.
-2. O numero `+558332167336` esta hardcoded em `app/services/messages.py` para
-   evitar loop com o proprio bot. Se o numero institucional mudar, ajuste todos
-   os usos.
-3. `app/api/routes/uploads.py` e rota legada nao registrada; a ativa e
-   `uploads_v2.py`.
-4. Upload ativo rejeita videos, mas alguns scripts, comentarios e listas ainda
-   falam de conversao de video/FFmpeg.
-5. `MediaService.get_media_info()` referencia `video_converter`, que nao esta
-   importado/definido. Hoje o caminho so e atingido se um video estiver no
-   storage e for consultado.
-6. `TemplateService` permite editar/excluir templates de sistema, apesar de
-   comentarios/rotas mencionarem protecao.
-7. `scripts/deploy.sh` espera `docker-compose.production.yml`, mas o arquivo
-   presente e `docker-compose.yml`.
-8. `README.md` menciona `docker compose -f docker-compose.production.yml`, que
-   tambem nao existe na raiz atual.
-9. `app/static/inbox/app.js` declara `escapeHtml` duas vezes. A segunda
-   declaracao sobrescreve a primeira.
-10. `app/static/inbox/app.js` referencia `recordPreview`, mas `index.html` nao
-    contem elemento com `id="recordPreview"`. O fluxo de abrir gravacao pode
-    quebrar ao acessar `els.recordPreview.classList`.
-11. `revokeMessage()` procura `.message-body`, mas `renderMessages()` nao cria
-    wrapper com essa classe. A revogacao ainda atualiza o banco e o polling deve
-    refletir depois, mas a atualizacao instantanea local pode falhar.
-12. `styles.css` tem blocos de IA duplicados e um trecho com declaracoes
-    `transform: scale(1); opacity: 1;` soltas dentro de `@media (max-width:
-    768px)`. Navegadores tendem a ignorar declaracoes invalidas, mas evite
-    editar essa area sem limpar o bloco.
-13. `app/core/security.py` e `app/utils/security.py` geram formatos de JWT
-    diferentes. As rotas atuais usam `app/utils/security.py`.
-14. `RuntimeSettings` cacheia um objeto SQLAlchemy expunged. Para escrita em
-    rotas administrativas, carregue o registro na sessao atual e invalide cache
-    apos commit.
-15. `Base.metadata.create_all()` cria tabelas automaticamente. Alteracoes de
-    schema devem considerar `schema_maintenance.py`, enums PostgreSQL e dados
-    existentes.
-
-## Checklist seguro para novos agentes
-
-Antes de alterar:
-
-- Leia este arquivo e o modulo exato que vai tocar.
-- Rode `git status --short` e preserve alteracoes locais nao suas.
-- Confirme se a rota/servico que voce vai editar esta registrado em
-  `ApplicationFactory`.
-- Se mexer em env, atualize `Settings`, `.env.example` e documentacao juntos.
-- Se mexer em modelo, revise schema Pydantic, rotas, frontend e manutencao de
-  schema.
-- Se mexer no HTML, revise todas as chaves em `els`.
-- Se mexer no fluxo de mensagens, teste inbound, outbound, update de status,
-  delete/revoke e deduplicacao por `external_message_id`.
-- Se mexer em uploads, teste arquivo permitido, arquivo rejeitado, tamanho
-  maximo e URL `/uploads/...`.
-- Se mexer em runtime settings, invalide cache apos escrita.
-
-Depois de alterar:
-
-- Rode `python -m compileall app scripts`.
-- Rode `node --check app/static/inbox/app.js` se o JS mudou.
-- Se possivel, suba a aplicacao e teste:
-  - `/health`
-  - `/api/v1/docs`
-  - login com desafio
-  - listagem de conversas
-  - envio de mensagem
-  - upload de midia
-  - webhook inbound com token
-  - telas admin se a alteracao afetar admin.
-
-## Mapa rapido de arquivos por responsabilidade
-
-- Auth e usuarios:
-  - `app/api/routes/auth.py`
-  - `app/api/routes/users.py`
-  - `app/api/deps.py`
-  - `app/utils/security.py`
-  - `app/services/login_challenge.py`
-  - `app/services/bootstrap.py`
-
-- Conversas e mensagens:
-  - `app/api/routes/conversations.py`
-  - `app/api/routes/webhook.py`
-  - `app/services/messages.py`
-  - `app/services/conversation_export.py`
-  - `app/models/conversation.py`
-  - `app/models/message.py`
-  - `app/schemas/conversation.py`
-  - `app/schemas/message.py`
-
-- Admin/settings:
-  - `app/api/routes/admin.py`
-  - `app/models/runtime_settings.py`
-  - `app/schemas/admin.py`
-  - `app/services/runtime_settings.py`
-  - `app/services/webhook_utils.py`
-  - `app/services/webhook_sync.py`
-
-- Templates:
-  - `app/api/routes/templates.py`
-  - `app/models/template.py`
-  - `app/schemas/template.py`
-  - `app/services/template_service.py`
-
-- Midia:
-  - `app/api/routes/uploads_v2.py`
-  - `app/api/routes/whatsapp_tools.py`
-  - `app/services/media/media_service.py`
-  - `app/schemas/upload.py`
-
-- IA:
-  - `app/api/routes/ai.py`
-  - `app/schemas/ai.py`
-  - `app/schemas/admin.py`
-  - `app/services/runtime_settings.py`
-
-- Frontend:
-  - `app/static/inbox/index.html`
-  - `app/static/inbox/app.js`
-  - `app/static/inbox/styles.css`
-  - `app/static/inbox/img/brasao.png`
-  - `app/static/inbox/img/sti_logo.png`
-
-- Infra:
-  - `Dockerfile`
-  - `docker-compose.yml`
-  - `.env.example`
-  - `.dockerignore`
-  - `.gitignore`
-  - `requirements.txt`
+Ambos passaram sem erro de sintaxe. Nao foram executados testes de integracao com banco, n8n, EvolutionAPI ou navegador.

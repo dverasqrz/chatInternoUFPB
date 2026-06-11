@@ -253,14 +253,17 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
             contacts = [contacts]
         for contact in contacts:
             phone = _normalize_phone(
-                contact.get("phone") or contact.get("wa_id") or contact.get("id")
+                contact.get("phone")
+                or contact.get("wa_id")
+                or contact.get("id")
+                or contact.get("remoteJid", "").replace("@s.whatsapp.net", "").replace("@lid", "")
             )
             if phone:
                 return {
                     "event": event,
                     "contact_phone": phone,
                     "contact_name": contact.get("name") or contact.get("pushName"),
-                    "profile_picture_url": contact.get("profilePictureUrl"),
+                    "profile_picture_url": contact.get("profilePictureUrl") or contact.get("profilePicUrl"),
                     "direction": None,
                     "message_type": None,
                     "text_content": None,
@@ -272,6 +275,69 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
                 }
         return {"event": event, "contact_phone": None, "raw_payload": payload}
 
+    # --- messages.edited (MESSAGES_EDITED - EvolutionAPI evento separado de edição) ---
+    if event == "messages.edited":
+        data = payload.get("data") or {}
+        key = data.get("key") or {}
+        msg_id = key.get("id") or data.get("keyId") or data.get("id")
+        edited_msg = data.get("editedMessage") or {}
+
+        logger.info(f"[NORM] messages.edited keyId={msg_id}, keys_in_data={list(data.keys())}, editedMessage={edited_msg}")
+
+        # Extrair texto de múltiplos caminhos
+        new_text = (
+            edited_msg.get("conversation")
+            or edited_msg.get("text")
+            or (edited_msg.get("extendedTextMessage") or {}).get("text")
+            or ""
+        )
+        # Tentar em editedMessage.message se existir
+        if not new_text:
+            edited_inner = edited_msg.get("message") or {}
+            new_text = (
+                edited_inner.get("conversation")
+                or edited_inner.get("text")
+                or (edited_inner.get("extendedTextMessage") or {}).get("text")
+                or ""
+            )
+        # Tentar diretamente no data se editedMessage não tiver texto
+        if not new_text:
+            new_text = (
+                data.get("conversation")
+                or data.get("text")
+                or (data.get("extendedTextMessage") or {}).get("text")
+                or ""
+            )
+
+        logger.info(f"[NORM] messages.edited new_text={new_text!r}")
+
+        raw_jid = key.get("remoteJid", "") or data.get("remoteJid", "")
+        is_lid = "@lid" in str(raw_jid)
+        phone = None
+        if not is_lid:
+            phone = _normalize_phone(raw_jid.replace("@lid", ""))
+        if not phone:
+            phone = _normalize_phone(
+                data.get("remoteJidAlt")
+                or key.get("remoteJidAlt")
+                or data.get("sender")
+                or payload.get("sender")
+            )
+
+        return {
+            "event": "messages.edited",
+            "contact_phone": phone,
+            "external_message_id": msg_id,
+            "edited_text": new_text if new_text else None,
+            "direction": None,
+            "message_type": MessageType.TEXT if new_text else None,
+            "text_content": new_text,
+            "media_url": None,
+            "media_mime_type": None,
+            "media_caption": None,
+            "raw_payload": payload,
+        }
+
     # --- messages.update (status) ---
     if event == "messages.update":
         data = payload.get("data") or {}
@@ -280,37 +346,144 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         msg_id = data.get("keyId") or key.get("id") or data.get("id") or data.get("messageId")
 
         # Log completo para debug de edições
-        logger.info(f"[NORM] messages.update keyId={msg_id}, keys_in_data={list(data.keys())}, message_keys={list((data.get('message') or {}).keys())}, raw_data={data}")
+        logger.info(f"[NORM] messages.update keyId={msg_id}, keys_in_data={list(data.keys())}, update_keys={list((data.get('update') or {}).keys())}, raw_data={data}")
 
         # Detectar se é edição de mensagem (editedMessage)
-        # EvolutionAPI pode enviar editedMessage em diferentes locais
+        # EvolutionAPI v2.3.x envia editedMessage em data.update.message.editedMessage
+        update_block = data.get("update") or {}
+        update_msg = update_block.get("message") or {}
         edited_msg = (
-            data.get("message", {}).get("editedMessage")
+            update_msg.get("editedMessage")
+            or data.get("message", {}).get("editedMessage")
             or data.get("editedMessage")
             or {}
         )
+        logger.info(f"[NORM] messages.update update_block_keys={list(update_block.keys()) if update_block else []}, update_msg_keys={list(update_msg.keys()) if update_msg else []}, edited_msg={edited_msg}")
+
+        # Tentar extrair novo texto de múltiplos caminhos possíveis
+        new_text = ""
         if edited_msg:
-            logger.info(f"[NORM] edited_msg encontrado: {edited_msg}")
+            # Caminho 1: editedMessage.message.conversation (estrutura nested)
             new_text = (
                 edited_msg.get("message", {}).get("conversation")
                 or edited_msg.get("message", {}).get("extendedTextMessage", {}).get("text")
                 or edited_msg.get("message", {}).get("text")
                 or ""
             )
-            phone = _normalize_phone(
-                data.get("remoteJid", "").replace("@lid", "")
-                or key.get("remoteJid", "").replace("@lid", "")
-                or data.get("sender")
-                or payload.get("sender")
+            # Caminho 2: editedMessage.conversation (sem wrapper message)
+            if not new_text:
+                new_text = (
+                    edited_msg.get("conversation")
+                    or edited_msg.get("text")
+                    or (edited_msg.get("extendedTextMessage") or {}).get("text")
+                    or ""
+                )
+            # Caminho 3: editedMessage direto pode ser string
+            if not new_text and isinstance(edited_msg, str):
+                new_text = edited_msg
+            # Caminho 4: percorrer edited_msg recursivamente procurando 'conversation' ou 'text'
+            if not new_text and isinstance(edited_msg, dict):
+                for k, v in edited_msg.items():
+                    if k in ("conversation", "text") and isinstance(v, str) and v.strip():
+                        new_text = v
+                        break
+                    if isinstance(v, dict):
+                        for k2, v2 in v.items():
+                            if k2 in ("conversation", "text") and isinstance(v2, str) and v2.strip():
+                                new_text = v2
+                                break
+                        if new_text:
+                            break
+            logger.info(f"[NORM] edited_msg path: new_text={new_text!r}, edited_msg_type={type(edited_msg).__name__}")
+
+        # Caminho 3: update.message.conversation direto (sem editedMessage wrapper)
+        if not new_text and update_msg:
+            new_text = (
+                update_msg.get("conversation")
+                or update_msg.get("text")
+                or (update_msg.get("extendedTextMessage") or {}).get("text")
+                or ""
             )
+            if new_text:
+                logger.info(f"[NORM] update_msg direct path: new_text={new_text!r}")
+
+        # Caminho 4: buscar diretamente no update_block (toda message dentro de update é edição)
+        if not new_text and update_block:
+            new_text = (
+                update_block.get("conversation")
+                or update_block.get("text")
+                or (update_block.get("extendedTextMessage") or {}).get("text")
+                or ""
+            )
+            if new_text:
+                logger.info(f"[NORM] update_block direct path: new_text={new_text!r}")
+
+        # Caminho 5: data.message pode ter conversation direto (edição simples)
+        if not new_text:
+            data_msg = data.get("message") or {}
+            if data_msg and isinstance(data_msg, dict):
+                new_text = (
+                    data_msg.get("conversation")
+                    or data_msg.get("text")
+                    or (data_msg.get("extendedTextMessage") or {}).get("text")
+                    or ""
+                )
+                if new_text:
+                    logger.info(f"[NORM] data.message direct path: new_text={new_text!r}")
+
+        if new_text:
+            # Priorizar remoteJidAlt (quando remoteJid é LID) e sender
+            raw_jid = data.get("remoteJid", "") or key.get("remoteJid", "")
+            is_lid = "@lid" in str(raw_jid)
+            phone = None
+            if not is_lid:
+                phone = _normalize_phone(raw_jid.replace("@lid", ""))
+            if not phone:
+                phone = _normalize_phone(
+                    data.get("remoteJidAlt")
+                    or key.get("remoteJidAlt")
+                    or data.get("sender")
+                    or payload.get("sender")
+                )
+            logger.info(f"[NORM] messages.update editado detectado: msg_id={msg_id}, phone={phone}, is_lid={is_lid}, new_text={new_text!r}")
             return {
                 "event": "messages.edited",
                 "contact_phone": phone,
                 "external_message_id": msg_id,
-                "edited_text": new_text if new_text else None,
+                "edited_text": new_text,
                 "direction": None,
-                "message_type": MessageType.TEXT if new_text else None,
+                "message_type": MessageType.TEXT,
                 "text_content": new_text,
+                "media_url": None,
+                "media_mime_type": None,
+                "media_caption": None,
+                "raw_payload": payload,
+            }
+
+        # Se edited_msg foi encontrado mas new_text vazio, mesmo assim marcar como editado
+        # (pode ser edição de mídia ou estrutura diferente)
+        if edited_msg:
+            raw_jid = data.get("remoteJid", "") or key.get("remoteJid", "")
+            is_lid = "@lid" in str(raw_jid)
+            phone = None
+            if not is_lid:
+                phone = _normalize_phone(raw_jid.replace("@lid", ""))
+            if not phone:
+                phone = _normalize_phone(
+                    data.get("remoteJidAlt")
+                    or key.get("remoteJidAlt")
+                    or data.get("sender")
+                    or payload.get("sender")
+                )
+            logger.info(f"[NORM] messages.update edited_msg sem texto: msg_id={msg_id}, phone={phone}, edited_msg_keys={list(edited_msg.keys()) if isinstance(edited_msg, dict) else 'not_dict'}")
+            return {
+                "event": "messages.edited",
+                "contact_phone": phone,
+                "external_message_id": msg_id,
+                "edited_text": None,
+                "direction": None,
+                "message_type": None,
+                "text_content": None,
                 "media_url": None,
                 "media_mime_type": None,
                 "media_caption": None,
@@ -428,6 +601,15 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if not message:
         message = root
 
+    # Detectar editedMessage dentro de messages.upsert (EvolutionAPI pode enviar edição como upsert)
+    edited_wrap = message.get("editedMessage") or root.get("editedMessage") or {}
+    edited_inner = _get_nested_dict(edited_wrap.get("message")) or edited_wrap
+    is_edited_upsert = False
+    if edited_wrap and (edited_inner.get("conversation") or edited_inner.get("text")
+                        or (edited_inner.get("extendedTextMessage") or {}).get("text")):
+        message = edited_inner
+        is_edited_upsert = True
+
     from_me = key.get("fromMe", False)
     if str(sender_raw).replace("+", "").strip() == "558332167336":
         from_me = True
@@ -447,6 +629,34 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     raw_type = root.get("type") or root.get("messageType")
     message_type = _extract_type(raw_type, has_media, message)
 
+    # Detectar secretEncryptedMessage (edição criptografada do WhatsApp)
+    # Quando usuário edita mensagem no WhatsApp, EvolutionAPI envia esse tipo
+    # com targetMessageKey.id apontando para a mensagem original editada.
+    # Não podemos descriptografar o conteúdo, então ignoramos para não criar duplicata.
+    if raw_type == "secretEncryptedMessage":
+        enc_msg = message.get("secretEncryptedMessage") or {}
+        target_key = enc_msg.get("targetMessageKey") or {}
+        target_msg_id = target_key.get("id")
+        logger.info(f"[ENCRYPTED] secretEncryptedMessage recebido, target_msg_id={target_msg_id}, ignorando para não criar duplicata")
+        return {
+            "event": "messages.secret_encrypted",
+            "contact_phone": phone,
+            "contact_name": root.get("pushName") or root.get("notify"),
+            "profile_picture_url": None,
+            "direction": direction,
+            "message_type": None,
+            "text_content": None,
+            "media_url": None,
+            "media_mime_type": None,
+            "media_caption": None,
+            "external_message_id": target_msg_id or key.get("id"),
+            "sender": sender_raw,
+            "quoted_message_text": None,
+            "quoted_message_sender": None,
+            "is_edited": False,
+            "raw_payload": payload,
+        }
+
     text_content = (
         message.get("conversation")
         or message.get("text")
@@ -456,8 +666,15 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     # Extrair referência da mensagem original (quotedMessage)
     quoted_text = None
     quoted_sender = None
-    extended = message.get("extendedTextMessage") or {}
-    context_info = extended.get("contextInfo") or {}
+    # Verificar contextInfo em todos os tipos de mensagem
+    context_info = (
+        (message.get("extendedTextMessage") or {}).get("contextInfo")
+        or (message.get("imageMessage") or {}).get("contextInfo")
+        or (message.get("videoMessage") or {}).get("contextInfo")
+        or (message.get("documentMessage") or {}).get("contextInfo")
+        or (message.get("audioMessage") or {}).get("contextInfo")
+        or {}
+    )
     quoted_msg = context_info.get("quotedMessage") or {}
     if quoted_msg:
         quoted_text = (
@@ -539,6 +756,7 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "sender": sender_raw,
         "quoted_message_text": quoted_text,
         "quoted_message_sender": quoted_sender,
+        "is_edited": is_edited_upsert,
         "raw_payload": payload,
     }
 
@@ -584,6 +802,122 @@ def _download_profile_picture(url: str | None, server_url: str | None = None, ap
         return None
 
 
+def _download_whatsapp_media(url: str | None, mime_type: str | None = None, message_type: MessageType | None = None, raw_payload: dict[str, Any] | None = None) -> str | None:
+    """Download media from WhatsApp CDN and store locally. Returns local path or None.
+    
+    Prioritizes base64 data from the raw payload (which WhatsApp sends directly).
+    Falls back to downloading from CDN URL if base64 is not available.
+    """
+    media_bytes = None
+
+    # First, try to get base64 from the raw payload (EvolutionAPI sends this)
+    if raw_payload:
+        # Navigate through the payload structure to find base64
+        root = raw_payload.get("data") or raw_payload.get("body", {}).get("data") or raw_payload
+        message = root.get("message") or {}
+        
+        # Check for base64 in imageMessage, videoMessage, audioMessage, documentMessage
+        for msg_type in ["imageMessage", "videoMessage", "audioMessage", "documentMessage"]:
+            msg_data = message.get(msg_type) or {}
+            b64_data = msg_data.get("base64")
+            if b64_data:
+                # base64 might be a dict with numeric keys (from WhatsApp protocol)
+                if isinstance(b64_data, dict):
+                    # Convert dict with numeric keys to bytes
+                    try:
+                        media_bytes = bytes(b64_data.values())
+                    except Exception:
+                        # Try decoding as base64 string if it's encoded
+                        pass
+                elif isinstance(b64_data, str):
+                    # It's a base64 string
+                    media_bytes = _decode_base64_media(b64_data)
+                if media_bytes:
+                    logger.info(f"Extracted {len(media_bytes)} bytes from payload base64 for {msg_type}")
+                    break
+        
+        # Also check for base64 at message root level (some EvolutionAPI versions)
+        if not media_bytes:
+            msg_b64 = message.get("base64")
+            if msg_b64:
+                if isinstance(msg_b64, str):
+                    media_bytes = _decode_base64_media(msg_b64)
+                elif isinstance(msg_b64, dict):
+                    try:
+                        media_bytes = bytes(msg_b64.values())
+                    except Exception:
+                        pass
+                if media_bytes:
+                    logger.info(f"Extracted {len(media_bytes)} bytes from message.base64")
+
+        # Also check for base64 at data root level
+        if not media_bytes:
+            root_b64 = root.get("base64")
+            if root_b64:
+                if isinstance(root_b64, str):
+                    media_bytes = _decode_base64_media(root_b64)
+                elif isinstance(root_b64, dict):
+                    try:
+                        media_bytes = bytes(root_b64.values())
+                    except Exception:
+                        pass
+
+    # Fallback: try to download from CDN URL
+    if not media_bytes and url and url.startswith("https://mmg.whatsapp.net"):
+        try:
+            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                resp = client.get(url)
+                if resp.status_code == 200:
+                    media_bytes = resp.content
+                else:
+                    logger.warning(f"Failed to download WhatsApp media from CDN: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Error downloading from WhatsApp CDN: {e}")
+
+    if not media_bytes:
+        logger.warning(f"[MEDIA] No media bytes extracted from payload. URL={url[:80] if url else None}")
+        return None
+
+    logger.info(f"[MEDIA] Extracted {len(media_bytes)} bytes of media data")
+
+    if len(media_bytes) < 100:
+        logger.warning(f"WhatsApp media too small ({len(media_bytes)} bytes), likely invalid")
+        return None
+
+    if len(media_bytes) > 25 * 1024 * 1024:
+        logger.warning(f"WhatsApp media too large ({len(media_bytes)} bytes), skipping")
+        return None
+
+    # Determine extension
+    ext = ".jpg"  # default
+    if mime_type:
+        mime_ext_map = {
+            "image/jpeg": ".jpg",
+            "image/png": ".png",
+            "image/webp": ".webp",
+            "image/gif": ".gif",
+            "video/mp4": ".mp4",
+            "audio/ogg": ".ogg",
+            "audio/mpeg": ".mp3",
+            "application/pdf": ".pdf",
+        }
+        ext = mime_ext_map.get(mime_type, ".bin")
+    elif message_type == MessageType.IMAGE:
+        ext = ".jpg"
+    elif message_type == MessageType.VIDEO:
+        ext = ".mp4"
+    elif message_type == MessageType.AUDIO:
+        ext = ".ogg"
+    elif message_type == MessageType.DOCUMENT:
+        ext = ".pdf"
+
+    filename = f"{secrets.token_hex(16)}{ext}"
+    dest = Path(get_settings().media_storage_path) / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(media_bytes)
+    return f"/uploads/{filename}"
+
+
 def _get_or_create_conversation(
     db: Session,
     contact_phone: str,
@@ -620,18 +954,39 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     direction = normalized.get("direction", MessageDirection.INBOUND)
     event = normalized.get("event")
 
+    logger.info(f"[INGEST] event={event}, direction={direction}, phone={contact_phone}, ext_id={normalized.get('external_message_id')}, msg_type={normalized.get('message_type')}, text={str(normalized.get('text_content'))[:30] if normalized.get('text_content') else None}, media={str(normalized.get('media_url'))[:50] if normalized.get('media_url') else None}")
+
+    # secretEncryptedMessage: mensagem criptografada de edição do WhatsApp
+    # Não podemos ler o conteúdo, mas podemos marcar a original como editada
+    if event == "messages.secret_encrypted":
+        target_msg_id = normalized.get("external_message_id")
+        logger.info(f"[ENCRYPTED] secretEncryptedMessage para {contact_phone}, target_msg_id={target_msg_id}")
+        if target_msg_id:
+            message = db.scalar(select(Message).where(Message.external_message_id == target_msg_id))
+            if message:
+                logger.info(f"[ENCRYPTED] Mensagem original encontrada id={message.id}, marcando como editada")
+                message.is_edited = True
+                db.commit()
+                db.refresh(message)
+                return message
+            else:
+                logger.info(f"[ENCRYPTED] Mensagem original não encontrada para {target_msg_id}")
+        return None
+
     # Para eventos de edição/deleção, buscar por external_message_id primeiro
     # (LID pode não corresponder ao telefone da conversa)
     if event in ("messages.edited", "messages.edit", "messages.delete"):
         msg_id = normalized.get("external_message_id")
         new_text = normalized.get("edited_text") if event != "messages.delete" else None
 
-        logger.info(f"[EDIT-IN] event={event}, external_id={msg_id}, phone={contact_phone}, new_text={new_text!r}")
+        logger.info(f"[EDIT-IN] event={event}, external_id={msg_id}, phone={contact_phone}, new_text={new_text!r}, raw_keys={list(normalized.keys())}")
 
         if msg_id:
             # Buscar por external_message_id (WhatsApp key ID)
             message = db.scalar(select(Message).where(Message.external_message_id == msg_id))
             logger.info(f"[EDIT-IN] Buscando external_id={msg_id}, encontrou={message is not None}")
+            if message:
+                logger.info(f"[EDIT-IN] Msg encontrada: id={message.id}, text_old={message.text_content[:50] if message.text_content else None}, is_edited={message.is_edited}")
 
             # Fallback: tentar buscar por messageId (interno EvolutionAPI)
             if not message:
@@ -667,7 +1022,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
             if message and event in ("messages.edited", "messages.edit"):
                 if new_text:
-                    logger.info(f"[EDIT-IN] Mensagem encontrada id={message.id}, atualizando texto")
+                    logger.info(f"[EDIT-IN] Mensagem encontrada id={message.id}, atualizando texto: {new_text!r}")
                     message.text_content = new_text
                     message.is_edited = True
                     message.message_type = MessageType.TEXT
@@ -675,7 +1030,12 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                     db.refresh(message)
                     return message
                 else:
-                    logger.warning(f"[EDIT-IN] Texto vazio na edição")
+                    # Mesmo sem novo texto, marcar como editado (pode ser edição de mídia)
+                    logger.info(f"[EDIT-IN] Mensagem encontrada id={message.id}, sem novo texto mas marcando como editada")
+                    message.is_edited = True
+                    db.commit()
+                    db.refresh(message)
+                    return message
             elif message and event == "messages.delete":
                 logger.info(f"[EDIT-IN] Deletando mensagem id={message.id}")
                 message.text_content = "🚫 Essa mensagem foi apagada"
@@ -720,6 +1080,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         contact_phone=normalized["contact_phone"],
         contact_name=contact_name,
     )
+    logger.info(f"[INGEST] conversation id={conversation.id}, phone={conversation.contact_phone}")
 
     profile_pic = normalized.get("profile_picture_url")
     if profile_pic:
@@ -767,11 +1128,20 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     # Verificar se mensagem já existe (evitar duplicatas)
     external_id = normalized.get("external_message_id")
+    is_edited_upsert = normalized.get("is_edited", False)
     if external_id:
         existing_message = db.scalar(
             select(Message).where(Message.external_message_id == external_id)
         )
         if existing_message:
+            # Se é edição via upsert, atualizar o texto
+            if is_edited_upsert and normalized.get("text_content"):
+                existing_message.text_content = normalized["text_content"]
+                existing_message.is_edited = True
+                existing_message.message_type = normalized.get("message_type") or existing_message.message_type
+                db.commit()
+                db.refresh(existing_message)
+                return existing_message
             # Mensagem já existe, não criar duplicata
             # Apenas atualizar o status se necessário
             if existing_message.delivery_status == DeliveryStatus.SENT and direction == MessageDirection.OUTBOUND:
@@ -780,28 +1150,55 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                 db.refresh(existing_message)
             return existing_message
 
-    # Se for mensagem OUTBOUND (enviada pelo dashboard), verificar se existe mensagem
-    # recente sem external_message_id na mesma conversa (evita duplicata quando
-    # o webhook de confirmação chega com external_id mas a mensagem original foi criada sem)
-    if direction == MessageDirection.OUTBOUND and external_id:
-        recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
-        existing_outbound = db.scalar(
-            select(Message).where(
-                Message.conversation_id == conversation.id,
-                Message.direction == MessageDirection.OUTBOUND,
-                Message.external_message_id.is_(None),
-                Message.created_at >= recent_cutoff,
-                Message.text_content == normalized.get("text_content"),
-            )
-        )
-        if existing_outbound:
-            # Atualizar a mensagem existente com o external_id e marcar como DELIVERED
-            existing_outbound.external_message_id = external_id
-            existing_outbound.delivery_status = DeliveryStatus.DELIVERED
-            existing_outbound.raw_payload = normalized.get("raw_payload")
+    # DEDUP universal: verificar se existe mensagem recente sem external_message_id
+    # na mesma conversa com mesmo tipo/texto (evita duplicata para inbound e outbound)
+    recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=2)
+    txt = normalized.get("text_content")
+    mtype = normalized.get("message_type")
+    candidates = db.scalars(
+        select(Message).where(
+            Message.conversation_id == conversation.id,
+            Message.external_message_id.is_(None),
+            Message.created_at >= recent_cutoff,
+        ).order_by(Message.created_at.desc())
+    ).all()
+
+    for candidate in candidates:
+        # Ignorar candidatos com direction diferente (a menos que ambos sejam OUTBOUND)
+        if candidate.direction != direction and not (candidate.direction == MessageDirection.OUTBOUND and direction == MessageDirection.OUTBOUND):
+            continue
+
+        # Para mídia sem texto, matching por message_type é suficiente
+        if txt is None and mtype is not None and candidate.message_type == mtype:
+            logger.info(f"[DEDUP] Duplicata evitada (tipo mídia): id={candidate.id}, ext_id={external_id}, conv_id={conversation.id}")
+            candidate.external_message_id = external_id
+            candidate.delivery_status = DeliveryStatus.DELIVERED if direction == MessageDirection.OUTBOUND else candidate.delivery_status
+            candidate.raw_payload = normalized.get("raw_payload")
             db.commit()
-            db.refresh(existing_outbound)
-            return existing_outbound
+            db.refresh(candidate)
+            return candidate
+
+        # Para texto, matching por text_content
+        if txt is not None:
+            txt_match = (candidate.text_content == txt) or (txt is None and candidate.text_content is None)
+            if txt_match:
+                logger.info(f"[DEDUP] Duplicata evitada (texto): id={candidate.id}, ext_id={external_id}, conv_id={conversation.id}")
+                candidate.external_message_id = external_id
+                candidate.delivery_status = DeliveryStatus.DELIVERED if direction == MessageDirection.OUTBOUND else candidate.delivery_status
+                candidate.raw_payload = normalized.get("raw_payload")
+                db.commit()
+                db.refresh(candidate)
+                return candidate
+
+        # Se não tem texto nem tipo, qualquer mensagem recente sem ext_id é candidata
+        if txt is None and mtype is None and candidate.text_content is None and candidate.message_type is None:
+            logger.info(f"[DEDUP] Duplicata evitada (sem dados): id={candidate.id}, ext_id={external_id}, conv_id={conversation.id}")
+            candidate.external_message_id = external_id
+            candidate.delivery_status = DeliveryStatus.DELIVERED if direction == MessageDirection.OUTBOUND else candidate.delivery_status
+            candidate.raw_payload = normalized.get("raw_payload")
+            db.commit()
+            db.refresh(candidate)
+            return candidate
 
     sender_name = normalized.get("contact_name")
     delivery_status = DeliveryStatus.RECEIVED
@@ -810,13 +1207,25 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
             sender_name = None
         delivery_status = DeliveryStatus.SENT
 
+    # Para mensagens inbound com mídia, tentar baixar e armazenar localmente
+    media_url = normalized.get("media_url")
+    if direction == MessageDirection.INBOUND and media_url:
+        local_media_path = _download_whatsapp_media(
+            media_url,
+            mime_type=normalized.get("media_mime_type"),
+            message_type=normalized.get("message_type"),
+            raw_payload=normalized.get("raw_payload"),
+        )
+        if local_media_path:
+            media_url = local_media_path
+
     message = Message(
         conversation_id=conversation.id,
         direction=direction,
         message_type=normalized["message_type"],
         delivery_status=delivery_status,
         text_content=normalized["text_content"],
-        media_url=normalized["media_url"],
+        media_url=media_url,
         media_mime_type=normalized["media_mime_type"],
         media_caption=normalized["media_caption"],
         sender_name=sender_name,

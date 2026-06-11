@@ -21,10 +21,10 @@ COPY ./app ./app
 COPY ./scripts ./scripts
 
 # Create necessary directories
-RUN mkdir -p /app/uploads /app/runtime /app/logs
+RUN mkdir -p /opt/projetos/chatZapUFPB/uploads /app/runtime /app/logs
 
 # Set permissions
-RUN chmod +x /app/uploads /app/runtime /app/scripts/*.py
+RUN chmod +x /opt/projetos/chatZapUFPB/uploads /app/runtime /app/scripts/*.py
 
 EXPOSE 8000
 

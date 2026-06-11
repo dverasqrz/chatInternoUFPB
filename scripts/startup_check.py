@@ -47,7 +47,7 @@ def check_ffmpeg():
 
 def check_directories():
     """Ensure required directories exist and are writable."""
-    directories = ['/app/uploads', '/app/runtime', '/app/logs']
+    directories = ['/opt/projetos/chatZapUFPB/uploads', '/app/runtime', '/app/logs']
     
     for directory in directories:
         dir_path = Path(directory)

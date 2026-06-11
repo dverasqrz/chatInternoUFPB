@@ -138,7 +138,7 @@ def check_file_permissions():
     """Check if the application can write to necessary directories."""
     print("\n📁 Checking file permissions...")
     
-    directories = ['/app/uploads', '/app/runtime', '/app/logs']
+    directories = ['/opt/projetos/chatZapUFPB/uploads', '/app/runtime', '/app/logs']
     
     for directory in directories:
         dir_path = Path(directory)

@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -75,7 +76,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "https://ollama.sti.ufpb.br/"
     
     # Media settings
-    media_storage_path: Path = Path("/app/uploads")
+    # Media settings - usa UPLOADS_DIR do environment se disponível
+    media_storage_path: Path = Path(os.getenv("UPLOADS_DIR", "/opt/projetos/chatZapUFPB/uploads"))
     media_max_file_size: int = 25 * 1024 * 1024  # 25MB
     media_allowed_extensions: list[str] = [
         ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",  # Images

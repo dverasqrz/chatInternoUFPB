@@ -94,6 +94,9 @@ const els = {
   uploadImageBtn: document.getElementById("uploadImageBtn"),
   recordAudioBtn: document.getElementById("recordAudioBtn"),
     sendMessageBtn: document.getElementById("sendMessageBtn"),
+  filePreviewContainer: document.getElementById("filePreviewContainer"),
+  filePreviewIcon: document.getElementById("filePreviewIcon"),
+  filePreviewRemove: document.getElementById("filePreviewRemove"),
   recordOverlay: document.getElementById("recordOverlay"),
   recordTitle: document.getElementById("recordTitle"),
   recordHelp: document.getElementById("recordHelp"),
@@ -420,6 +423,7 @@ function buildMessageSignature(messages) {
         message.media_url || "",
         message.media_mime_type || "",
         message.media_caption || "",
+        message.is_edited ? "1" : "0",
       ].join("|")
     )
     .join("||");
@@ -463,6 +467,7 @@ function resetComposer() {
   els.mediaCaption.value = "";
   els.mediaMimeType.value = "";
   setComposerVisibility();
+  hideFilePreview();
 }
 
 // ===== Sistema de Mensagens Prontas (Templates) =====
@@ -1557,7 +1562,9 @@ async function startRecording() {
           setComposerVisibility();
           els.mediaUrl.value = uploaded.media_url;
           els.mediaMimeType.value = uploaded.mime_type || mimeType;
-          showSuccessToast("Áudio anexado com sucesso.");
+          if (uploaded.media_url) {
+            showFilePreview("audio", uploaded.media_url);
+          }
         } catch (error) {
           showToast(error.message || "Falha ao anexar gravação.");
         } finally {
@@ -1599,6 +1606,31 @@ function cancelRecording() {
   closeRecordModal();
 }
 
+function showFilePreview(type, url, name) {
+  if (!els.filePreviewContainer) return;
+  els.filePreviewIcon.innerHTML = "";
+  if (type === "image") {
+    const img = document.createElement("img");
+    img.src = url;
+    img.alt = name || "Imagem";
+    els.filePreviewIcon.appendChild(img);
+  } else if (type === "audio") {
+    els.filePreviewIcon.textContent = "\u266B";
+    els.filePreviewIcon.style.color = "#0a8c6e";
+  } else {
+    els.filePreviewIcon.textContent = "\uD83D\uDCC4";
+    els.filePreviewIcon.style.color = "#0a8c6e";
+  }
+  els.filePreviewContainer.classList.remove("hidden");
+}
+
+function hideFilePreview() {
+  if (!els.filePreviewContainer) return;
+  els.filePreviewContainer.classList.add("hidden");
+  els.filePreviewIcon.innerHTML = "";
+  els.filePreviewIcon.style.color = "";
+}
+
 async function uploadImageFromLocal(file) {
   if (!file) {
     return;
@@ -1616,7 +1648,11 @@ async function uploadImageFromLocal(file) {
     setComposerVisibility();
     els.mediaUrl.value = uploaded.media_url;
     els.mediaMimeType.value = uploaded.mime_type || file.type;
-    showSuccessToast("Arquivo anexado.");
+
+    // Mostrar preview do arquivo
+    if (uploaded.media_url) {
+      showFilePreview(type, uploaded.media_url, file.name);
+    }
   } catch (error) {
     showToast(error.message || "Falha ao enviar arquivo.");
   } finally {
@@ -1901,7 +1937,10 @@ function buildMessageBody(message) {
   }
 
   if (message.message_type === "image" && message.media_url) {
-    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada">`;
+    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada" onclick="openMediaModal('${safeUrl}', 'image')" style="cursor:pointer;">`;
+  }
+  if (message.message_type === "video" && message.media_url) {
+    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<video class="message-media" controls preload="metadata" onclick="openMediaModal('${safeUrl}', 'video')" style="cursor:pointer;"><source src="${safeUrl}" type="${escapeHtml(message.media_mime_type || 'video/mp4')}">Vídeo não suportado.</video>`;
   }
   if (message.message_type === "document") {
     const urlHTML = message.media_url 
@@ -1922,6 +1961,33 @@ function buildMessageBody(message) {
     return `${quotedHtml}<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
   }
   return `${quotedHtml}<p style="white-space: pre-wrap; margin: 0;">${safeText || "[mensagem sem conteúdo textual]"}</p>`;
+}
+
+function openMediaModal(url, type) {
+  const overlay = document.createElement("div");
+  overlay.className = "media-modal-overlay";
+  overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
+  const closeBtn = document.createElement("span");
+  closeBtn.className = "media-modal-close";
+  closeBtn.textContent = "\u00D7";
+  closeBtn.onclick = function() { overlay.remove(); };
+  overlay.appendChild(closeBtn);
+  if (type === "video") {
+    const vid = document.createElement("video");
+    vid.src = url;
+    vid.controls = true;
+    vid.autoplay = true;
+    vid.style.cursor = "default";
+    vid.onclick = function(e) { e.stopPropagation(); };
+    overlay.appendChild(vid);
+  } else {
+    const img = document.createElement("img");
+    img.src = url;
+    img.style.cursor = "default";
+    img.onclick = function(e) { e.stopPropagation(); };
+    overlay.appendChild(img);
+  }
+  document.body.appendChild(overlay);
 }
 
 function openExportModal(referenceTimestamp) {
@@ -2167,11 +2233,14 @@ function renderMessages(messages, options = {}) {
     }
     
     // Substitui conteúdo de uma vez (sem piscamento)
+    const wasAtBottom = els.messages.scrollTop + els.messages.clientHeight >= els.messages.scrollHeight - 50;
     els.messages.innerHTML = '';
     els.messages.appendChild(fragment);
     
-    // Sempre scroll para o fim no load completo
-    els.messages.scrollTop = els.messages.scrollHeight;
+    // Se estava no fim, scroll para o fim. Senão, preserva posição.
+    if (wasAtBottom || !state.messagesByConversation[conversationId]?.length) {
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
   }
   
   // Configurar eventos de mídia
@@ -3050,6 +3119,16 @@ function bindEvents() {
   els.imageFileInput.addEventListener("change", async () => {
     await uploadImageFromLocal(els.imageFileInput.files?.[0]);
   });
+  if (els.filePreviewRemove) {
+    els.filePreviewRemove.addEventListener("click", () => {
+      hideFilePreview();
+      els.mediaUrl.value = "";
+      els.mediaMimeType.value = "";
+      els.messageType.value = "text";
+      updateTypeIcons();
+      setComposerVisibility();
+    });
+  }
   els.recordAudioBtn.addEventListener("click", () => openRecordModal("audio"));
   els.startRecordBtn.addEventListener("click", async () => {
     await startRecording();

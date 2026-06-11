@@ -119,7 +119,7 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
-        db.execute(
+        connection.execute(
             text(
                 """
                 ALTER TABLE messages
@@ -127,7 +127,7 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
-        db.execute(
+        connection.execute(
             text(
                 """
                 ALTER TABLE messages

@@ -18,7 +18,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./uploads:/app/uploads
+      - ./uploads:/opt/projetos/chatZapUFPB/uploads
       - ./runtime:/app/runtime
       - ./logs:/app/logs
     healthcheck:
