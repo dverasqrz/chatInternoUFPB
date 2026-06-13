@@ -11,6 +11,10 @@ class OutboundMessageCreate(BaseModel):
     media_url: str | None = None
     media_mime_type: str | None = Field(default=None, max_length=150)
     media_caption: str | None = Field(default=None, max_length=2000)
+    quoted_message_text: str | None = Field(default=None, max_length=200)
+    quoted_message_sender: str | None = Field(default=None, max_length=120)
+    quoted_message_id: str | None = Field(default=None, max_length=150)
+    quoted_message_participant: str | None = Field(default=None, max_length=150)
 
     @model_validator(mode="after")
     def validate_payload(self) -> "OutboundMessageCreate":
@@ -42,6 +46,8 @@ class MessageRead(BaseModel):
     is_read: bool = False
     quoted_message_text: str | None = None
     quoted_message_sender: str | None = None
+    quoted_message_id: str | None = None
+    quoted_message_participant: str | None = None
 
     model_config = {"from_attributes": True}
 

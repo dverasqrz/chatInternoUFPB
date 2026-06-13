@@ -135,3 +135,19 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS quoted_message_id VARCHAR(150);
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                ALTER TABLE messages
+                ADD COLUMN IF NOT EXISTS quoted_message_participant VARCHAR(150);
+                """
+            )
+        )

@@ -31,6 +31,8 @@ const state = {
   // Mensagens prontas (templates) - carregadas do backend
   messageTemplates: [],
   showTemplates: false,
+  // Reply/quote state
+  replyToMessage: null,
 };
 
 const els = {
@@ -158,6 +160,11 @@ const els = {
   saveAiConfigBtn: document.getElementById("saveAiConfigBtn"),
   mobileBackBtn: document.getElementById("mobileBackBtn"),
   mobileComposerBackBtn: document.getElementById("mobileComposerBackBtn"),
+  // Reply/quote elements
+  replyPreview: document.getElementById("replyPreview"),
+  replyPreviewSender: document.getElementById("replyPreviewSender"),
+  replyPreviewText: document.getElementById("replyPreviewText"),
+  cancelReplyBtn: document.getElementById("cancelReplyBtn"),
 };
 
 function setSession(token, user) {
@@ -468,6 +475,49 @@ function resetComposer() {
   els.mediaMimeType.value = "";
   setComposerVisibility();
   hideFilePreview();
+  cancelReply();
+}
+
+// ===== Reply / Quote System =====
+function startReply(messageId) {
+  const convId = state.selectedConversationId;
+  const msgs = state.messagesByConversation[convId] || [];
+  const msg = msgs.find(m => m.id === messageId);
+  if (!msg) return;
+
+  state.replyToMessage = msg;
+
+  const sender = msg.direction === "outbound"
+    ? (msg.sender_name || state.user?.name || "Você")
+    : (msg.sender_name || "Cliente");
+
+  let previewText = "";
+  if (msg.text_content) {
+    previewText = msg.text_content.substring(0, 120);
+  } else if (msg.media_caption) {
+    previewText = msg.media_caption.substring(0, 120);
+  } else if (msg.message_type === "image") {
+    previewText = "📷 Imagem";
+  } else if (msg.message_type === "video") {
+    previewText = "🎥 Vídeo";
+  } else if (msg.message_type === "audio") {
+    previewText = "🎵 Áudio";
+  } else if (msg.message_type === "document") {
+    previewText = "📄 Documento";
+  } else {
+    previewText = "Mensagem";
+  }
+
+  if (els.replyPreviewSender) els.replyPreviewSender.textContent = sender;
+  if (els.replyPreviewText) els.replyPreviewText.textContent = previewText;
+  if (els.replyPreview) els.replyPreview.classList.remove("hidden");
+
+  els.textContent.focus();
+}
+
+function cancelReply() {
+  state.replyToMessage = null;
+  if (els.replyPreview) els.replyPreview.classList.add("hidden");
 }
 
 // ===== Sistema de Mensagens Prontas (Templates) =====
@@ -734,6 +784,87 @@ async function checkBackendConnection() {
 }
 
 // ===== Funções de Templates (Backend) =====
+const FALLBACK_TEMPLATES = [
+  {
+    id: 1,
+    title: "LGPD - Bom dia",
+    content: `Bom dia!
+Termo de Consentimento para Tratamento de Dados Pessoais
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail,
+CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento.
+Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los
+ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses
+termos. Deseja continuar o atendimento?`,
+    category: "LGPD",
+    is_system: true
+  },
+  {
+    id: 2,
+    title: "LGPD - Boa tarde",
+    content: `Boa tarde!
+Termo de Consentimento para Tratamento de Dados Pessoais
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail,
+CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento.
+Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los
+ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses
+termos. Deseja continuar o atendimento?`,
+    category: "LGPD",
+    is_system: true
+  },
+  {
+    id: 3,
+    title: "Pesquisa de Satisfação",
+    content: `Se puder avaliar este atendimento, sua opinião é muito importante para nós! ☺️
+Em uma escala de 1 a 5, qual o seu índice de satisfação?
+
+⭐️ 1 – Muito insatisfeito
+⭐️⭐️ 2 – Insatisfeito
+⭐️⭐️⭐️ 3 – Neutro
+⭐️⭐️⭐️⭐️ 4 – Satisfeito
+⭐️⭐️⭐️⭐️⭐️ 5 – Muito satisfeito`,
+    category: "Pesquisa",
+    is_system: true
+  },
+  {
+    id: 4,
+    title: "Contatos Secretaria da STI",
+    content: `Contatos Secretaria da STI
+secretariaexecutiva@sti.ufpb.br
+hermes@sti.ufpb.br
+Recepção: 3216-7389
+Secretaria: 3216-7390`,
+    category: "Contatos",
+    is_system: true
+  },
+  {
+    id: 5,
+    title: "Abertura de Chamado",
+    content: `Nesse caso, tem que ser aberto um chamado.
+Para abrir o chamado, precisamos de algumas confirmações de segurança.
+Você deseja abrir o chamado?`,
+    category: "Atendimento",
+    is_system: true
+  },
+  {
+    id: 6,
+    title: "Confirmação de Identidade",
+    content: `Para confirmação da sua identidade, precisamos que você nos envie:
+- selfie, segurando um documento de identidade com foto, que fique legível;
+- foto ou o pdf do documento mostrado na selfie.`,
+    category: "Atendimento",
+    is_system: true
+  },
+  {
+    id: 7,
+    title: "Permissões SIPAC -PROTOCOLO",
+    content: `Para obter as permissões no módulo de PROTOCOLO do sistema SIPAC, você deve procurar o ARQUIVO CENTRAL. Lembrando que é imprescindível que o servidor anexe, ao pedido, sua portaria de localização ou algum documento assinado pela chefia imediata (declaração, memorando, entre outros) informando sua localização na unidade desejada.
+Para realizar o pedido acesse:
+https://otrs-arquivo.ufpb.br/suporte/`,
+    category: "Atendimento",
+    is_system: true
+  }
+];
+
 async function loadTemplates() {
   console.log("=== INICIANDO CARREGAMENTO DE TEMPLATES ===");
   console.log("Token disponível:", !!state.token);
@@ -747,33 +878,7 @@ async function loadTemplates() {
     console.warn("Backend não está conectado, usando templates de fallback");
     
     // Usar templates de fallback sem mostrar erro de rede
-    state.messageTemplates = [
-      {
-        id: 1,
-        title: "Termo de Consentimento LGPD",
-        content: `*Termo de Consentimento para Tratamento de Dados Pessoais*
-
-Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail, CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento. Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses termos.
-
-Deseja continuar o atendimento?`,
-        category: "LGPD",
-        is_system: true
-      },
-      {
-        id: 2,
-        title: "Pesquisa de Satisfação",
-        content: `Sua opinião é muito importante para nós. 
-Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber neste canal?
-
-1 estrela - Muito insatisfeito
-2 estrelas - Insatisfeito
-3 estrelas - Neutro
-4 estrelas - Satisfeito
-5 estrelas - Muito satisfeito`,
-        category: "Pesquisa",
-        is_system: true
-      }
-    ];
+    state.messageTemplates = FALLBACK_TEMPLATES;
     
     console.log(`Usando ${state.messageTemplates.length} templates de fallback (offline)`);
     showToast("Usando templates offline. Verifique sua conexão com o servidor.", "warning");
@@ -810,9 +915,7 @@ Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber ne
       showToast("Resposta inválida do servidor ao carregar templates", "error");
       
       // Usar fallback mesmo com resposta inválida
-      state.messageTemplates = [
-        // Templates LGPD e Pesquisa
-      ];
+      state.messageTemplates = FALLBACK_TEMPLATES;
     }
     
   } catch (error) {
@@ -824,33 +927,7 @@ Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber ne
     
     // Tentativa de fallback com templates locais
     console.log("Tentando usar templates de fallback...");
-    state.messageTemplates = [
-      {
-        id: 1,
-        title: "Termo de Consentimento LGPD",
-        content: `*Termo de Consentimento para Tratamento de Dados Pessoais*
-
-Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail, CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento. Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses termos.
-
-Deseja continuar o atendimento?`,
-        category: "LGPD",
-        is_system: true
-      },
-      {
-        id: 2,
-        title: "Pesquisa de Satisfação",
-        content: `Sua opinião é muito importante para nós. 
-Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber neste canal?
-
-1 estrela - Muito insatisfeito
-2 estrelas - Insatisfeito
-3 estrelas - Neutro
-4 estrelas - Satisfeito
-5 estrelas - Muito satisfeito`,
-        category: "Pesquisa",
-        is_system: true
-      }
-    ];
+    state.messageTemplates = FALLBACK_TEMPLATES;
     
     console.log(`Usando ${state.messageTemplates.length} templates de fallback`);
     
@@ -1748,7 +1825,7 @@ async function handleAdminUserAction(action, userId) {
     }
     await apiRequest(`/users/${userId}`, { method: "DELETE" });
     await loadAdminUsers();
-    showToast("Usuário excluído.");
+      showToast("Usuário excluído.", "success");
   }
 }
 
@@ -1943,10 +2020,11 @@ function buildMessageBody(message) {
     return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<video class="message-media" controls preload="metadata" onclick="openMediaModal('${safeUrl}', 'video')" style="cursor:pointer;"><source src="${safeUrl}" type="${escapeHtml(message.media_mime_type || 'video/mp4')}">Vídeo não suportado.</video>`;
   }
   if (message.message_type === "document") {
-    const urlHTML = message.media_url 
-      ? `<a href="${safeUrl}" target="_blank" style="color:#0a3b2b;text-decoration:none;font-weight:700;">Baixar / Abrir arquivo</a>`
-      : `<span style="color:#666;font-size:12px;font-style:italic;">Arquivo indisponível para download</span>`;
-    return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento</strong><br>${urlHTML}</div></div>`;
+    const captionHtml = safeCaption ? `<p style="margin:0 0 6px 0;white-space:pre-wrap;">${safeCaption}</p>` : "";
+    if (message.media_url) {
+      return `${quotedHtml}${captionHtml}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento</strong><br><a href="${safeUrl}" target="_blank" style="color:#0a3b2b;text-decoration:none;font-weight:700;">Baixar / Abrir arquivo</a></div></div>`;
+    }
+    return `${quotedHtml}${captionHtml}<div style="margin:8px 0;padding:12px;background:rgba(255,255,255,0.7);border-radius:8px;border:1px solid #d2dfd9;display:flex;align-items:center;gap:12px;"><span style="font-size:24px;">📄</span><div><strong>Documento</strong><br><span style="color:#666;font-size:12px;font-style:italic;">Arquivo indisponível para download</span></div></div>`;
   }
   if (message.message_type === "audio" && message.media_url) {
     const encryptedHint = String(message.media_url).includes(".enc")
@@ -2149,7 +2227,8 @@ function renderMessages(messages, options = {}) {
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
         const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
-        const actionsHtml = (editBtn || revokeBtn) ? `<span class="msg-actions">${editBtn}${revokeBtn}</span>` : '';
+        const replyBtn = `<button class="reply-msg-btn" onclick="startReply(${message.id})" title="Responder">↩️</button>`;
+        const actionsHtml = (editBtn || revokeBtn || replyBtn) ? `<span class="msg-actions">${replyBtn}${editBtn}${revokeBtn}</span>` : '';
         const unreadClass = (message.direction === "inbound" && !message.is_read) ? ' message-unread' : '';
         return `<article class="message-item ${klass}${unreadClass} message-new" data-id="${message.id}">
             <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${actionsHtml}</div>
@@ -2189,7 +2268,8 @@ function renderMessages(messages, options = {}) {
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
         const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
-        const actionsHtml = (editBtn || revokeBtn) ? `<span class="msg-actions">${editBtn}${revokeBtn}</span>` : '';
+        const replyBtn = `<button class="reply-msg-btn" onclick="startReply(${message.id})" title="Responder">↩️</button>`;
+        const actionsHtml = (editBtn || revokeBtn || replyBtn) ? `<span class="msg-actions">${replyBtn}${editBtn}${revokeBtn}</span>` : '';
         const unreadClass = (message.direction === "inbound" && !message.is_read) ? ' message-unread' : '';
         return `<article class="message-item ${klass}${unreadClass}" data-id="${message.id}">
             <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${actionsHtml}</div>
@@ -2218,7 +2298,8 @@ function renderMessages(messages, options = {}) {
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
         const editBtn = (message.direction === "outbound" && message.message_type === "text" && !(message.text_content || "").startsWith("🚫 Essa mensagem foi apagada"))
             ? `<button class="edit-msg-btn" onclick="startEditMessage(${message.id}, this)" title="Editar mensagem">✏️</button>` : '';
-        const actionsHtml = (editBtn || revokeBtn) ? `<span class="msg-actions">${editBtn}${revokeBtn}</span>` : '';
+        const replyBtn = `<button class="reply-msg-btn" onclick="startReply(${message.id})" title="Responder">↩️</button>`;
+        const actionsHtml = (editBtn || revokeBtn || replyBtn) ? `<span class="msg-actions">${replyBtn}${editBtn}${revokeBtn}</span>` : '';
         const unreadClass = (message.direction === "inbound" && !message.is_read) ? ' message-unread' : '';
         return `<article class="message-item ${klass}${unreadClass}" data-id="${message.id}">
             <div class="message-meta"><span>${escapeHtml(sender)}</span><span>${formatDate(message.created_at)}</span>${message.is_edited ? '<span class="msg-edited">editada</span>' : ''}<span class="msg-status status-${message.delivery_status || 'received'}">${formatDeliveryStatus(message.delivery_status)}</span>${actionsHtml}</div>
@@ -2503,6 +2584,50 @@ async function sendMessage() {
       payload.text_content = els.textContent.value.trim();
     }
   }
+
+  // Include reply/quote data if replying to a message
+  if (state.replyToMessage) {
+    const replyMsg = state.replyToMessage;
+    let quotedText = replyMsg.text_content || replyMsg.media_caption || "";
+    if (replyMsg.message_type === "image") quotedText = quotedText || "📷 Imagem";
+    else if (replyMsg.message_type === "video") quotedText = quotedText || "🎥 Vídeo";
+    else if (replyMsg.message_type === "audio") quotedText = quotedText || "🎵 Áudio";
+    else if (replyMsg.message_type === "document") quotedText = quotedText || "📄 Documento";
+    payload.quoted_message_text = quotedText.substring(0, 200);
+    payload.quoted_message_sender = replyMsg.direction === "outbound"
+      ? (replyMsg.sender_name || state.user?.name || "Você")
+      : (replyMsg.sender_name || "Cliente");
+
+    // WhatsApp reply context: stanzaId + participant
+    // Para inbound: usar quoted_message_id (stanzaId original)
+    // Para outbound: usar external_message_id (ID que WhatsApp retornou)
+    const stanzaId = replyMsg.quoted_message_id || replyMsg.external_message_id;
+    if (stanzaId) {
+      payload.quoted_message_id = stanzaId;
+    }
+    // Participant: JID de quem enviou a mensagem original
+    // Para inbound: usar quoted_message_participant (JID do remetente WhatsApp)
+    // Para outbound: montar a partir do contato (destinatario)
+    let participant = replyMsg.quoted_message_participant;
+    if (!participant && replyMsg.direction === "outbound") {
+      // Mensagem outbound: o destinatario e o contato da conversa
+      const conv = state.conversations.find(c => c.id === state.selectedConversationId);
+      if (conv && conv.contact_phone) {
+        participant = conv.contact_phone.replace("+", "") + "@s.whatsapp.net";
+      }
+    }
+    if (!participant && replyMsg.direction === "inbound") {
+      // Mensagem inbound sem participant: usar o contato da conversa
+      const conv = state.conversations.find(c => c.id === state.selectedConversationId);
+      if (conv && conv.contact_phone) {
+        participant = conv.contact_phone.replace("+", "") + "@s.whatsapp.net";
+      }
+    }
+    if (participant) {
+      payload.quoted_message_participant = participant;
+    }
+  }
+
   await apiRequest(`/conversations/${state.selectedConversationId}/messages`, { method: "POST", body: JSON.stringify(payload) });
   resetComposer();
   await loadMessages();
@@ -2573,7 +2698,7 @@ async function changePassword(currentPassword, newPassword) {
   els.passwordOverlay.classList.add("hidden");
   els.currentPassword.value = "";
   els.newPassword.value = "";
-  showToast("Senha alterada com sucesso.");
+  showToast("Senha alterada com sucesso.", "success");
   if (wasForced) {
     await initializeInbox();
   } else if (state.user?.is_admin) {
@@ -3205,7 +3330,7 @@ function bindEvents() {
     els.exportError.textContent = "";
     try {
       await downloadExportHtml();
-      showToast("HTML exportado.");
+      showToast("HTML exportado.", "success");
     } catch (error) {
       els.exportError.textContent = error.message || "Falha ao exportar HTML.";
     }
@@ -3214,7 +3339,7 @@ function bindEvents() {
     els.exportError.textContent = "";
     try {
       await downloadExportPdf();
-      showToast("PDF exportado.");
+      showToast("PDF exportado.", "success");
     } catch (error) {
       els.exportError.textContent = error.message || "Falha ao exportar PDF.";
     }

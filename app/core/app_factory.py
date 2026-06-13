@@ -28,6 +28,8 @@ from app.services.runtime_settings import get_or_create_runtime_settings
 from app.services.schema_maintenance import ensure_schema_compatibility
 from app.services.webhook_sync import sync_webhook_urls_on_startup
 
+import re
+
 logger = logging.getLogger(__name__)
 
 
@@ -213,68 +215,148 @@ class ApplicationFactory:
     
     def _initialize_system_templates(self, db: Session) -> None:
         """
-        Initialize system templates if they don't exist.
+        Initialize system templates.
         
-        Creates default templates for LGPD and research that are
-        protected from deletion and marked as system templates.
+        Drops old system templates and recreates with current versions.
         """
         try:
             from app.models.template import MessageTemplate
             
-            # Check if system templates already exist
             existing_templates = db.query(MessageTemplate).filter(
                 MessageTemplate.is_system == True
             ).all()
             
             if existing_templates:
-                logger.info(f"System templates already exist: {len(existing_templates)}")
-                for template in existing_templates:
-                    logger.info(f"  - {template.title} ({template.category})")
-                return
+                logger.info(f"Dropping {len(existing_templates)} old system templates...")
+                for t in existing_templates:
+                    db.delete(t)
+                db.commit()
             
             logger.info("Creating system templates...")
             
-            # Create LGPD template
-            lgpd_template = MessageTemplate(
-                title="Termo de Consentimento LGPD",
-                content="""*Termo de Consentimento para Tratamento de Dados Pessoais*
+            templates = [
+                MessageTemplate(
+                    title="LGPD - Bom dia",
+                    content="""Bom dia!
+Termo de Consentimento para Tratamento de Dados Pessoais
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail,
+CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento.
+Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los
+ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses
+termos. Deseja continuar o atendimento?""",
+                    category="LGPD",
+                    is_system=True,
+                    is_active=True,
+                ),
+                MessageTemplate(
+                    title="LGPD - Boa tarde",
+                    content="""Boa tarde!
+Termo de Consentimento para Tratamento de Dados Pessoais
+Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail,
+CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento.
+Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los
+ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses
+termos. Deseja continuar o atendimento?""",
+                    category="LGPD",
+                    is_system=True,
+                    is_active=True,
+                ),
+                MessageTemplate(
+                    title="Pesquisa de Satisfação",
+                    content="""Se puder avaliar este atendimento, sua opinião é muito importante para nós! ☺️
+Em uma escala de 1 a 5, qual o seu índice de satisfação?
 
-Precisamos do seu consentimento para coletar e tratar dados pessoais (como nome, e-mail, CPF e informações da solicitação) usados apenas para prestar e aprimorar o atendimento. Seus dados não serão compartilhados sem autorização, e você pode acessá-los, corrigi-los ou solicitar sua exclusão a qualquer momento. Ao prosseguir, você concorda com esses termos.
-
-Deseja continuar o atendimento?""",
-                category="LGPD",
-                is_system=True,
-                is_active=True
-            )
+⭐️ 1 – Muito insatisfeito
+⭐️⭐️ 2 – Insatisfeito
+⭐️⭐️⭐️ 3 – Neutro
+⭐️⭐️⭐️⭐️ 4 – Satisfeito
+⭐️⭐️⭐️⭐️⭐️ 5 – Muito satisfeito""",
+                    category="Pesquisa",
+                    is_system=True,
+                    is_active=True,
+                ),
+                MessageTemplate(
+                    title="Contatos Secretaria da STI",
+                    content="""Contatos Secretaria da STI
+secretariaexecutiva@sti.ufpb.br
+hermes@sti.ufpb.br
+Recepção: 3216-7389
+Secretaria: 3216-7390""",
+                    category="Contatos",
+                    is_system=True,
+                    is_active=True,
+                ),
+                MessageTemplate(
+                    title="Abertura de Chamado",
+                    content="""Nesse caso, tem que ser aberto um chamado.
+Para abrir o chamado, precisamos de algumas confirmações de segurança.
+Você deseja abrir o chamado?""",
+                    category="Atendimento",
+                    is_system=True,
+                    is_active=True,
+                ),
+                MessageTemplate(
+                    title="Confirmação de Identidade",
+                    content="""Para confirmação da sua identidade, precisamos que você nos envie:
+- selfie, segurando um documento de identidade com foto, que fique legível;
+- foto ou o pdf do documento mostrado na selfie.""",
+                    category="Atendimento",
+                    is_system=True,
+                    is_active=True,
+                ),
+                MessageTemplate(
+                    title="Permissões SIPAC -PROTOCOLO",
+                    content="""Para obter as permissões no módulo de PROTOCOLO do sistema SIPAC, você deve procurar o ARQUIVO CENTRAL. Lembrando que é imprescindível que o servidor anexe, ao pedido, sua portaria de localização ou algum documento assinado pela chefia imediata (declaração, memorando, entre outros) informando sua localização na unidade desejada.
+Para realizar o pedido acesse:
+https://otrs-arquivo.ufpb.br/suporte/""",
+                    category="Atendimento",
+                    is_system=True,
+                    is_active=True,
+                ),
+            ]
             
-            # Create research template
-            research_template = MessageTemplate(
-                title="Pesquisa de Satisfação",
-                content="""Sua opinião é muito importante para nós. 
-Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber neste canal?
-
-1 estrela - Muito insatisfeito
-2 estrelas - Insatisfeito
-3 estrelas - Neutro
-4 estrelas - Satisfeito
-5 estrelas - Muito satisfeito""",
-                category="Pesquisa",
-                is_system=True,
-                is_active=True
-            )
-            
-            # Save templates
-            db.add_all([lgpd_template, research_template])
+            db.add_all(templates)
             db.commit()
             
             logger.info("System templates created successfully:")
-            logger.info(f"  - {lgpd_template.title} ({lgpd_template.category})")
-            logger.info(f"  - {research_template.title} ({research_template.category})")
+            for t in templates:
+                logger.info(f"  - {t.title} ({t.category})")
             
         except Exception as e:
             logger.error(f"Error initializing system templates: {e}")
             db.rollback()
             raise
+    
+    def _cleanup_invalid_contacts(self, db: Session) -> None:
+        """
+        Remove conversations with no messages.
+        
+        Empty conversations may have been created by webhook errors or
+        race conditions. They serve no purpose and clutter the contact list.
+        """
+        try:
+            from app.models.conversation import Conversation
+            from app.models.message import Message
+            
+            conv_ids_with_messages = set(
+                row[0] for row in db.query(Message.conversation_id).distinct().all()
+            )
+            all_convs = db.query(Conversation).all()
+            empty_convs = [c for c in all_convs if c.id not in conv_ids_with_messages]
+            
+            if empty_convs:
+                logger.info(f"Removing {len(empty_convs)} conversations with no messages...")
+                for conv in empty_convs:
+                    logger.info(f"  - {conv.contact_phone} ({conv.contact_name or 'Sem Nome'})")
+                    db.delete(conv)
+                db.commit()
+                logger.info(f"Cleanup complete: {len(empty_convs)} empty conversations removed")
+            else:
+                logger.info("No empty conversations found during cleanup")
+                
+        except Exception as e:
+            logger.error(f"Error during contact cleanup: {e}")
+            db.rollback()
     
     @asynccontextmanager
     async def lifespan(self, app: FastAPI) -> AsyncGenerator[None, None]:
@@ -319,6 +401,9 @@ Em uma escala de 1 a 5, como você avalia o atendimento que acabou de receber ne
                 
                 logger.info("Initializing system templates...")
                 self._initialize_system_templates(db)
+                
+                logger.info("🧹 Cleaning up invalid contacts...")
+                self._cleanup_invalid_contacts(db)
                 
                 logger.info("🔗 Syncing webhook configurations...")
                 sync_webhook_urls_on_startup()

@@ -68,6 +68,8 @@ class Message(Base):
     is_read: Mapped[bool] = mapped_column(default=False, nullable=False, server_default="false")
     quoted_message_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     quoted_message_sender: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    quoted_message_id: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    quoted_message_participant: Mapped[str | None] = mapped_column(String(150), nullable=True)
 
     conversation = relationship("Conversation", back_populates="messages")
     attendant = relationship("User", back_populates="outbound_messages")

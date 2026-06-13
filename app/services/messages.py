@@ -666,15 +666,26 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
     # Extrair referência da mensagem original (quotedMessage)
     quoted_text = None
     quoted_sender = None
-    # Verificar contextInfo em todos os tipos de mensagem
+    quoted_message_id = None
+    quoted_message_participant = None
+    # Verificar contextInfo em todos os tipos de mensagem + fallback no root (data level)
     context_info = (
         (message.get("extendedTextMessage") or {}).get("contextInfo")
         or (message.get("imageMessage") or {}).get("contextInfo")
         or (message.get("videoMessage") or {}).get("contextInfo")
         or (message.get("documentMessage") or {}).get("contextInfo")
         or (message.get("audioMessage") or {}).get("contextInfo")
+        or root.get("contextInfo")
         or {}
     )
+
+    # Extrair stanzaId e participant do contextInfo (sempre, independente de quotedMessage)
+    # Esses campos sao irmãos de quotedMessage, nao filhos
+    quoted_message_id = context_info.get("stanzaId")
+    quoted_message_participant = context_info.get("participant")
+    if quoted_message_participant:
+        quoted_sender = quoted_message_participant.split("@")[0] if "@" in quoted_message_participant else quoted_message_participant
+
     quoted_msg = context_info.get("quotedMessage") or {}
     if quoted_msg:
         quoted_text = (
@@ -686,10 +697,9 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         if quoted_text:
             quoted_text = quoted_text[:200]  # Limitar tamanho
-        # Quem enviou a mensagem original
-        quoted_sender = context_info.get("participant") or context_info.get("stanzaId")
-        if quoted_sender:
-            quoted_sender = quoted_sender.split("@")[0] if "@" in quoted_sender else quoted_sender
+
+    if quoted_message_id or quoted_message_participant or quoted_text:
+        logger.info(f"[QUOTE] stanzaId={quoted_message_id}, participant={quoted_message_participant}, text={quoted_text[:50] if quoted_text else None}")
 
     # Tratar reações (emoji como resposta/reação a mensagem)
     reaction = message.get("reactionMessage") or {}
@@ -756,6 +766,8 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "sender": sender_raw,
         "quoted_message_text": quoted_text,
         "quoted_message_sender": quoted_sender,
+        "quoted_message_id": quoted_message_id,
+        "quoted_message_participant": quoted_message_participant,
         "is_edited": is_edited_upsert,
         "raw_payload": payload,
     }
@@ -952,6 +964,7 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     contact_phone = normalized["contact_phone"]
     direction = normalized.get("direction", MessageDirection.INBOUND)
+    direction = normalized.get("direction", MessageDirection.INBOUND)
     event = normalized.get("event")
 
     logger.info(f"[INGEST] event={event}, direction={direction}, phone={contact_phone}, ext_id={normalized.get('external_message_id')}, msg_type={normalized.get('message_type')}, text={str(normalized.get('text_content'))[:30] if normalized.get('text_content') else None}, media={str(normalized.get('media_url'))[:50] if normalized.get('media_url') else None}")
@@ -1075,6 +1088,26 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
     if direction == MessageDirection.OUTBOUND and contact_name and contact_name.strip().upper() == "CAU":
         contact_name = None
 
+    # For contact sync events, only update existing conversations (don't create empty ones)
+    if event in ("contacts.upsert", "contacts.update"):
+        existing = db.scalar(
+            select(Conversation).where(Conversation.contact_phone == normalized["contact_phone"])
+        )
+        if existing:
+            if contact_name and not existing.contact_name:
+                existing.contact_name = contact_name
+                db.commit()
+            profile_pic = normalized.get("profile_picture_url")
+            if profile_pic:
+                local_path = _download_profile_picture(profile_pic, server_url=payload.get("server_url"), apikey=payload.get("apikey"), instance=payload.get("instance"))
+                if local_path:
+                    existing.profile_picture_url = local_path
+                elif not existing.profile_picture_url:
+                    existing.profile_picture_url = profile_pic
+                db.commit()
+            return existing
+        return None
+
     conversation = _get_or_create_conversation(
         db=db,
         contact_phone=normalized["contact_phone"],
@@ -1120,9 +1153,6 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
                         logger.error(f"Evolution API fetchProfile fail: {resp.status_code}")
             except Exception as e:
                 logger.error(f"Erro ao tentar cachear foto de perfil: {e}")
-
-    if event in ("contacts.upsert", "contacts.update"):
-        return conversation
 
     conversation.last_message_at = datetime.now(timezone.utc)
 
@@ -1231,9 +1261,11 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
         sender_name=sender_name,
         sender_phone=normalized["contact_phone"],
         external_message_id=external_id,
-        raw_payload=normalized["raw_payload"],
+        raw_payload=normalized.get("raw_payload"),
         quoted_message_text=normalized.get("quoted_message_text"),
         quoted_message_sender=normalized.get("quoted_message_sender"),
+        quoted_message_id=normalized.get("quoted_message_id"),
+        quoted_message_participant=normalized.get("quoted_message_participant"),
     )
     db.add(message)
     db.commit()
@@ -1280,6 +1312,9 @@ async def create_outbound_message(
         media_caption=data.media_caption,
         sender_name=attendant.name,
         attendant_id=attendant.id,
+        quoted_message_text=data.quoted_message_text,
+        quoted_message_sender=data.quoted_message_sender,
+        quoted_message_id=data.quoted_message_id,
         raw_payload={
             "source": "api",
             "requested_by": attendant.email,
@@ -1331,6 +1366,13 @@ async def create_outbound_message(
             "email": attendant.email,
         },
     }
+
+    # Incluir contexto de reply/quote para WhatsApp (n8n deve repassar ao EvolutionAPI)
+    if data.quoted_message_id:
+        outbound_payload["contextInfo"] = {
+            "stanzaId": data.quoted_message_id,
+            "participant": data.quoted_message_participant or "",
+        }
 
     try:
         outbound_headers, outbound_auth = _build_outbound_request_security(runtime_settings)
