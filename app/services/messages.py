@@ -624,9 +624,14 @@ def normalize_webhook_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     has_media = any(
         message.get(k)
-        for k in ("imageMessage", "audioMessage", "videoMessage", "documentMessage", "pttMessage")
+        for k in ("imageMessage", "audioMessage", "videoMessage", "documentMessage", "pttMessage", "stickerMessage")
     )
     raw_type = root.get("type") or root.get("messageType")
+
+    # Treat stickerMessage as imageMessage for n8n compatibility
+    if message.get("stickerMessage") and not message.get("imageMessage"):
+        message["imageMessage"] = message["stickerMessage"]
+
     message_type = _extract_type(raw_type, has_media, message)
 
     # Detectar secretEncryptedMessage (edição criptografada do WhatsApp)
@@ -828,8 +833,8 @@ def _download_whatsapp_media(url: str | None, mime_type: str | None = None, mess
         root = raw_payload.get("data") or raw_payload.get("body", {}).get("data") or raw_payload
         message = root.get("message") or {}
         
-        # Check for base64 in imageMessage, videoMessage, audioMessage, documentMessage
-        for msg_type in ["imageMessage", "videoMessage", "audioMessage", "documentMessage"]:
+        # Check for base64 in imageMessage, videoMessage, audioMessage, documentMessage, stickerMessage
+        for msg_type in ["imageMessage", "videoMessage", "audioMessage", "documentMessage", "stickerMessage"]:
             msg_data = message.get(msg_type) or {}
             b64_data = msg_data.get("base64")
             if b64_data:

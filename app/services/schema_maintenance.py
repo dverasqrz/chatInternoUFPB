@@ -151,3 +151,21 @@ def ensure_schema_compatibility(engine: Engine) -> None:
                 """
             )
         )
+        # Add 'sticker' to message_type enum if not exists
+        connection.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_enum
+                        WHERE enumlabel = 'sticker'
+                        AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'message_type')
+                    ) THEN
+                        ALTER TYPE message_type ADD VALUE 'sticker';
+                    END IF;
+                END
+                $$;
+                """
+            )
+        )

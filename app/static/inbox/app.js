@@ -505,6 +505,8 @@ function startReply(messageId) {
     previewText = "🎵 Áudio";
   } else if (msg.message_type === "document") {
     previewText = "📄 Documento";
+  } else if (msg.message_type === "sticker") {
+    previewText = "🏷️ Sticker";
   } else {
     previewText = "Mensagem";
   }
@@ -2018,6 +2020,9 @@ function buildMessageBody(message) {
   if (message.message_type === "image" && message.media_url) {
     return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<img class="message-media" src="${safeUrl}" alt="Imagem enviada" onclick="openMediaModal('${safeUrl}', 'image')" style="cursor:pointer;">`;
   }
+  if (message.message_type === "sticker" && message.media_url) {
+    return `${quotedHtml}<img class="message-sticker" src="${safeUrl}" alt="Sticker" onclick="openMediaModal('${safeUrl}', 'image')" style="cursor:pointer;">`;
+  }
   if (message.message_type === "video" && message.media_url) {
     return `${quotedHtml}${safeCaption ? `<p>${safeCaption}</p>` : ""}<video class="message-media" controls preload="metadata" onclick="openMediaModal('${safeUrl}', 'video')" style="cursor:pointer;"><source src="${safeUrl}" type="${escapeHtml(message.media_mime_type || 'video/mp4')}">Vídeo não suportado.</video>`;
   }
@@ -2616,6 +2621,7 @@ async function sendMessage() {
     else if (replyMsg.message_type === "video") quotedText = quotedText || "🎥 Vídeo";
     else if (replyMsg.message_type === "audio") quotedText = quotedText || "🎵 Áudio";
     else if (replyMsg.message_type === "document") quotedText = quotedText || "📄 Documento";
+    else if (replyMsg.message_type === "sticker") quotedText = quotedText || "🏷️ Sticker";
     payload.quoted_message_text = quotedText.substring(0, 200);
     payload.quoted_message_sender = replyMsg.direction === "outbound"
       ? (replyMsg.sender_name || state.user?.name || "Você")

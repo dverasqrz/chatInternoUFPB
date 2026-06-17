@@ -1020,6 +1020,18 @@ body {
 .message-media:hover {
   opacity: 0.85;
 }
+.message-sticker {
+  max-width: 160px;
+  max-height: 160px;
+  object-fit: contain;
+  display: block;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.message-sticker:hover {
+  transform: scale(1.05);
+  opacity: 0.9;
+}
 .media-modal-overlay {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
