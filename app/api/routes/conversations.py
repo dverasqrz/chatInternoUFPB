@@ -61,7 +61,20 @@ def list_conversations(
         .offset(offset)
         .limit(limit)
     ).all()
-    return [ConversationRead.model_validate(item) for item in conversations]
+
+    result = []
+    for conv in conversations:
+        unread = db.scalar(
+            select(func.count()).select_from(Message).where(
+                Message.conversation_id == conv.id,
+                Message.direction == MessageDirection.INBOUND,
+                Message.is_read == False,
+            )
+        ) or 0
+        dto = ConversationRead.model_validate(conv)
+        dto.unread_count = unread
+        result.append(dto)
+    return result
 
 
 @router.post("", response_model=ConversationRead, status_code=status.HTTP_201_CREATED)
@@ -126,7 +139,19 @@ def list_contacts(
         select(Conversation)
         .order_by(Conversation.contact_name.asc(), Conversation.contact_phone.asc())
     ).all()
-    return [ConversationRead.model_validate(item) for item in conversations]
+    result = []
+    for conv in conversations:
+        unread = db.scalar(
+            select(func.count()).select_from(Message).where(
+                Message.conversation_id == conv.id,
+                Message.direction == MessageDirection.INBOUND,
+                Message.is_read == False,
+            )
+        ) or 0
+        dto = ConversationRead.model_validate(conv)
+        dto.unread_count = unread
+        result.append(dto)
+    return result
 
 @router.get("/search/messages", response_model=list[MessageSearchResult])
 def search_messages(

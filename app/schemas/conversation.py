@@ -10,6 +10,7 @@ class ConversationRead(BaseModel):
     profile_picture_url: str | None = None
     created_at: datetime
     last_message_at: datetime
+    unread_count: int = 0
 
     model_config = {"from_attributes": True}
 

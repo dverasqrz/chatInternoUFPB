@@ -1953,6 +1953,7 @@ function renderConversations() {
             <div class="conversation-phone">${escapeHtml(conversation.contact_phone)}</div>
             <div class="conversation-phone">Atualizado: ${formatDate(conversation.last_message_at)}</div>
           </div>
+          ${conversation.unread_count > 0 ? `<span class="conversation-unread-badge">${conversation.unread_count}</span>` : ''}
         </li>
       `;
     })
@@ -2549,7 +2550,14 @@ async function selectConversation(id) {
 
   // Marcar mensagens como lidas (compartilhado entre atendentes)
   if (id) {
-    apiRequest(`/conversations/${id}/messages/read`, { method: "POST" }).catch(() => {});
+    apiRequest(`/conversations/${id}/messages/read`, { method: "POST" })
+      .then(() => {
+        // Atualizar contagem de não lidas na sidebar
+        const conv = state.conversations.find(c => c.id === id);
+        if (conv) conv.unread_count = 0;
+        renderConversations();
+      })
+      .catch(() => {});
   }
 }
 
@@ -2632,6 +2640,17 @@ async function sendMessage() {
   resetComposer();
   await loadMessages();
   await loadConversations(true);
+  // Marcar mensagens como lidas ao responder (local + API)
+  const msgs = state.messagesByConversation[state.selectedConversationId] || [];
+  msgs.forEach(m => { if (m.direction === "inbound") m.is_read = true; });
+  renderMessages(msgs, { forceRender: true });
+  apiRequest(`/conversations/${state.selectedConversationId}/messages/read`, { method: "POST" })
+    .then(() => {
+      const conv = state.conversations.find(c => c.id === state.selectedConversationId);
+      if (conv) conv.unread_count = 0;
+      renderConversations();
+    })
+    .catch(() => {});
 }
 
 async function login(email, password) {
