@@ -546,7 +546,8 @@ def delete_all_messages(
 @router.get("/{conversation_id}/export", response_model=ConversationExportResponse)
 def export_conversation_data(
     conversation_id: int,
-    export_date: date,
+    start_date: date,
+    end_date: date,
     start_time: time = Query(default=time(0, 0)),
     end_time: time = Query(default=time(23, 59)),
     contact_profile: str = Query(default="indefinido"),
@@ -557,7 +558,8 @@ def export_conversation_data(
         conversation, messages = get_conversation_and_messages_for_range(
             db=db,
             conversation_id=conversation_id,
-            export_date=export_date,
+            start_date=start_date,
+            end_date=end_date,
             start_time=start_time,
             end_time=end_time,
         )
@@ -570,7 +572,8 @@ def export_conversation_data(
     return build_export_payload(
         conversation=conversation,
         messages=messages,
-        export_date=export_date,
+        start_date=start_date,
+        end_date=end_date,
         start_time=start_time,
         end_time=end_time,
         contact_profile=contact_profile,
@@ -580,7 +583,8 @@ def export_conversation_data(
 @router.get("/{conversation_id}/export/pdf")
 def export_conversation_pdf(
     conversation_id: int,
-    export_date: date,
+    start_date: date,
+    end_date: date,
     start_time: time = Query(default=time(0, 0)),
     end_time: time = Query(default=time(23, 59)),
     contact_profile: str = Query(default="indefinido"),
@@ -591,7 +595,8 @@ def export_conversation_pdf(
         conversation, messages = get_conversation_and_messages_for_range(
             db=db,
             conversation_id=conversation_id,
-            export_date=export_date,
+            start_date=start_date,
+            end_date=end_date,
             start_time=start_time,
             end_time=end_time,
         )
@@ -604,22 +609,23 @@ def export_conversation_pdf(
     export_data = build_export_payload(
         conversation=conversation,
         messages=messages,
-        export_date=export_date,
+        start_date=start_date,
+        end_date=end_date,
         start_time=start_time,
         end_time=end_time,
         contact_profile=contact_profile,
     )
     pdf_bytes = build_pdf_bytes(export_data)
     
-    # Usar telefone do contato para nome do arquivo
     contact_phone = conversation.contact_phone or ""
-    # Remover tudo que nao for digito
     safe_phone = re.sub(r'\D', '', contact_phone)
     if not safe_phone:
         safe_phone = "sem_telefone"
     
-    # Formato: telefone_dd_mm_yyyy.pdf
-    filename = f"{safe_phone}_{export_date.strftime('%d_%m_%Y')}.pdf"
+    if start_date == end_date:
+        filename = f"{safe_phone}_{start_date.strftime('%d_%m_%Y')}.pdf"
+    else:
+        filename = f"{safe_phone}_{start_date.strftime('%d_%m_%Y')}_ate_{end_date.strftime('%d_%m_%Y')}.pdf"
     
     stream = BytesIO(pdf_bytes)
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}

@@ -21,6 +21,7 @@ class MessageType(str, Enum):
     AUDIO = "audio"
     VIDEO = "video"
     DOCUMENT = "document"
+    STICKER = "sticker"
 
 
 class DeliveryStatus(str, Enum):

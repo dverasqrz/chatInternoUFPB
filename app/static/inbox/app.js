@@ -112,7 +112,8 @@ const els = {
   audioPreview: document.getElementById("audioPreview"),
   audioPlayer: document.getElementById("audioPlayer"),
   exportOverlay: document.getElementById("exportOverlay"),
-  exportDate: document.getElementById("exportDate"),
+  exportStartDate: document.getElementById("exportStartDate"),
+  exportEndDate: document.getElementById("exportEndDate"),
   exportStartTime: document.getElementById("exportStartTime"),
   exportEndTime: document.getElementById("exportEndTime"),
   exportProfile: document.getElementById("exportProfile"),
@@ -2080,7 +2081,9 @@ function openExportModal(referenceTimestamp) {
   const y = parts.find((item) => item.type === "year")?.value || "1970";
   const m = parts.find((item) => item.type === "month")?.value || "01";
   const d = parts.find((item) => item.type === "day")?.value || "01";
-  els.exportDate.value = `${y}-${m}-${d}`;
+  const dateStr = `${y}-${m}-${d}`;
+  els.exportStartDate.value = dateStr;
+  els.exportEndDate.value = dateStr;
   els.exportStartTime.value = "00:00";
   els.exportEndTime.value = "23:59";
   els.exportProfile.value = "indefinido";
@@ -2095,22 +2098,30 @@ function closeExportModal() {
 }
 
 function buildExportQuery() {
-  const dateValue = els.exportDate.value;
+  const startDate = els.exportStartDate.value;
+  const endDate = els.exportEndDate.value;
   const startValue = els.exportStartTime.value || "00:00";
   const endValue = els.exportEndTime.value || "23:59";
-  if (!dateValue) {
-    throw new Error("Selecione a data para exportar.");
+  if (!startDate) {
+    throw new Error("Selecione a data inicial para exportar.");
   }
-  if (endValue < startValue) {
+  if (!endDate) {
+    throw new Error("Selecione a data final para exportar.");
+  }
+  if (endDate < startDate) {
+    throw new Error("Data final não pode ser anterior à data inicial.");
+  }
+  if (endDate === startValue && endValue < startValue) {
     throw new Error("Hora final não pode ser menor que hora inicial.");
   }
   const query = new URLSearchParams({
-    export_date: dateValue,
+    start_date: startDate,
+    end_date: endDate,
     start_time: startValue,
     end_time: endValue,
     contact_profile: els.exportProfile.value,
   });
-  return { query: query.toString(), date: dateValue, startTime: startValue, endTime: endValue };
+  return { query: query.toString(), startDate, endDate, startTime: startValue, endTime: endValue };
 }
 
 function downloadBlob(content, filename, mimeType) {
@@ -2145,7 +2156,7 @@ function buildExportHtmlDocument(data) {
   <body style="font-family:Segoe UI,Arial,sans-serif;background:#f5faf7;padding:16px;color:#102b24;">
   <h1 style="margin:0 0 10px;">Relatório de Conversa</h1>
   <p><strong>Cliente:</strong> ${escapeHtml(data.contact_name)} | <strong>Perfil:</strong> ${escapeHtml(data.contact_profile)} | <strong>Telefone:</strong> ${escapeHtml(data.contact_phone)}</p>
-  <p><strong>Intervalo:</strong> ${escapeHtml(data.date)} de ${escapeHtml(data.start_time)} até ${escapeHtml(data.end_time)}</p>
+  <p><strong>Período:</strong> ${escapeHtml(data.date)} | <strong>Horário:</strong> ${escapeHtml(data.start_time)} até ${escapeHtml(data.end_time)}</p>
   <hr>${lines || "<p>Sem mensagens no intervalo selecionado.</p>"}</body></html>`;
 }
 
@@ -2153,11 +2164,14 @@ async function downloadExportHtml() {
   if (!state.exportContext?.conversationId) {
     throw new Error("Nenhuma conversa selecionada.");
   }
-  const { query, date, startTime, endTime } = buildExportQuery();
+  const { query, startDate, endDate } = buildExportQuery();
   const data = await apiRequest(`/conversations/${state.exportContext.conversationId}/export?${query}`);
   const safePhone = (data.contact_phone || "").replace(/\D/g, "") || "sem_telefone";
-  const [yyyy, mm, dd] = date.split("-");
-  const filename = `${safePhone}_${dd}_${mm}_${yyyy}.html`;
+  const [sy, sm, sd] = startDate.split("-");
+  const [ey, em, ed] = endDate.split("-");
+  const filename = startDate === endDate
+    ? `${safePhone}_${sd}_${sm}_${sy}.html`
+    : `${safePhone}_${sd}_${sm}_${sy}_ate_${ed}_${em}_${ey}.html`;
   downloadBlob(buildExportHtmlDocument(data), filename, "text/html;charset=utf-8");
 }
 
@@ -2165,7 +2179,7 @@ async function downloadExportPdf() {
   if (!state.exportContext?.conversationId) {
     throw new Error("Nenhuma conversa selecionada.");
   }
-  const { query, date, startTime, endTime } = buildExportQuery();
+  const { query, startDate, endDate } = buildExportQuery();
   const response = await fetch(`${apiPrefix}/conversations/${state.exportContext.conversationId}/export/pdf?${query}`, {
     headers: { Authorization: `Bearer ${state.token}` },
   });
@@ -2369,7 +2383,8 @@ function exportCurrentDay() {
   const dateStr = today.toISOString().split('T')[0]; // YYYY-MM-DD format
   
   // Set export modal with today's date and full day range
-  els.exportDate.value = dateStr;
+  els.exportStartDate.value = dateStr;
+  els.exportEndDate.value = dateStr;
   els.exportStartTime.value = "00:00";
   els.exportEndTime.value = "23:59";
   els.exportProfile.value = "indefinido";

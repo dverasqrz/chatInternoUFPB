@@ -112,7 +112,8 @@ def _image_bytes_from_data_url(data_url: str | None) -> bytes | None:
 def build_export_payload(
     conversation: Conversation,
     messages: list[Message],
-    export_date: date,
+    start_date: date,
+    end_date: date,
     start_time: time,
     end_time: time,
     contact_profile: str | None,
@@ -135,12 +136,17 @@ def build_export_payload(
             )
         )
 
+    if start_date == end_date:
+        date_label = start_date.isoformat()
+    else:
+        date_label = f"{start_date.isoformat()} a {end_date.isoformat()}"
+
     return ConversationExportResponse(
         conversation_id=conversation.id,
         contact_name=conversation.contact_name or "Cliente sem nome",
         contact_phone=conversation.contact_phone,
         contact_profile=normalized_profile,
-        date=export_date.isoformat(),
+        date=date_label,
         start_time=start_time.strftime("%H:%M"),
         end_time=end_time.strftime("%H:%M"),
         entries=entries,
@@ -150,7 +156,8 @@ def build_export_payload(
 def get_conversation_and_messages_for_range(
     db: Session,
     conversation_id: int,
-    export_date: date,
+    start_date: date,
+    end_date: date,
     start_time: time,
     end_time: time,
 ) -> tuple[Conversation, list[Message]]:
@@ -158,8 +165,11 @@ def get_conversation_and_messages_for_range(
     if not conversation:
         raise ValueError("Conversa não encontrada.")
 
-    start_local = datetime.combine(export_date, start_time, tzinfo=RECIFE_TZ)
-    end_local = datetime.combine(export_date, end_time, tzinfo=RECIFE_TZ)
+    if end_date < start_date:
+        raise ValueError("Data final não pode ser anterior à data inicial.")
+
+    start_local = datetime.combine(start_date, start_time, tzinfo=RECIFE_TZ)
+    end_local = datetime.combine(end_date, end_time, tzinfo=RECIFE_TZ)
     if end_local < start_local:
         raise ValueError("Intervalo inválido: horário final anterior ao inicial.")
 
