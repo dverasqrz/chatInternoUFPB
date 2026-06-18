@@ -43,8 +43,11 @@ def _normalized_contact_profile(raw_profile: str | None) -> str:
 
 def _message_content(message: Message) -> str:
     text = (message.text_content or "").strip()
+    caption = (message.media_caption or "").strip()
     if text:
         return text
+    if caption:
+        return caption
     if message.message_type == MessageType.IMAGE:
         return "[imagem]"
     if message.media_url:

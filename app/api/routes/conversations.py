@@ -4,7 +4,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin, get_current_user_password_changed
@@ -162,7 +162,10 @@ def search_messages(
     query_str = f"%{q}%"
     messages_and_convs = db.query(Message, Conversation).\
         join(Conversation, Message.conversation_id == Conversation.id).\
-        filter(Message.text_content.ilike(query_str)).\
+        filter(or_(
+            Message.text_content.ilike(query_str),
+            Message.media_caption.ilike(query_str),
+        )).\
         order_by(Message.created_at.desc()).\
         limit(50).all()
 
