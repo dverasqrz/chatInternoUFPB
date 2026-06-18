@@ -944,11 +944,18 @@ def _get_or_create_conversation(
     if not phone:
         raise HTTPException(status_code=400, detail="Telefone inválido.")
 
+    # Filter out placeholder names that aren't real contact names
+    _bad_names = {"você", "voce", "eu"}
+    if contact_name and contact_name.strip().lower() in _bad_names:
+        contact_name = None
+
     conversation = db.scalar(
         select(Conversation).where(Conversation.contact_phone == phone)
     )
     if conversation:
-        if contact_name and not conversation.contact_name:
+        # Update name if empty, or if current name is a placeholder
+        current_bad = (conversation.contact_name or "").strip().lower() in _bad_names
+        if contact_name and (not conversation.contact_name or current_bad):
             conversation.contact_name = contact_name
             db.commit()
             db.refresh(conversation)
@@ -1091,6 +1098,11 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
 
     contact_name = normalized.get("contact_name")
     if direction == MessageDirection.OUTBOUND and contact_name and contact_name.strip().upper() == "CAU":
+        contact_name = None
+
+    # Filter out placeholder names
+    _bad_names = {"você", "voce", "eu"}
+    if contact_name and contact_name.strip().lower() in _bad_names:
         contact_name = None
 
     # For contact sync events, only update existing conversations (don't create empty ones)
