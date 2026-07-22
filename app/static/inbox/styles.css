@@ -927,6 +927,24 @@ body {
 }
   cursor: default;
 }
+.media-zoom-container {
+  position: relative;
+  overflow: hidden;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: default;
+}
+.media-zoom-img {
+  max-width: none;
+  max-height: none;
+  transform-origin: 0 0;
+  transition: transform 0.05s ease-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}
 .media-modal-close {
   position: absolute;
   top: 16px; right: 20px;

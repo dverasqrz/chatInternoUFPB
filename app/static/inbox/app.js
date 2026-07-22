@@ -2066,11 +2066,77 @@ function openMediaModal(url, type) {
     vid.onclick = function(e) { e.stopPropagation(); };
     overlay.appendChild(vid);
   } else {
+    const container = document.createElement("div");
+    container.className = "media-zoom-container";
     const img = document.createElement("img");
     img.src = url;
-    img.style.cursor = "default";
+    img.className = "media-zoom-img";
+    container.appendChild(img);
+    let scale = 1;
+    let translateX = 0;
+    let translateY = 0;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    function updateTransform() {
+      img.style.transform = `translate(${translateX}px, ${translateY}px) scale(${scale})`;
+    }
+    container.addEventListener("wheel", function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.deltaY > 0 ? 0.9 : 1.1;
+      const newScale = Math.min(Math.max(scale * delta, 0.5), 10);
+      if (newScale !== scale) {
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left - rect.width / 2;
+        const mouseY = e.clientY - rect.top - rect.height / 2;
+        translateX = mouseX - (mouseX - translateX) * (newScale / scale);
+        translateY = mouseY - (mouseY - translateY) * (newScale / scale);
+        scale = newScale;
+        updateTransform();
+      }
+    }, { passive: false });
+    container.addEventListener("mousedown", function(e) {
+      if (e.button !== 0) return;
+      isDragging = true;
+      startX = e.clientX - translateX;
+      startY = e.clientY - translateY;
+      container.style.cursor = "grabbing";
+      e.preventDefault();
+    });
+    document.addEventListener("mousemove", function(e) {
+      if (!isDragging) return;
+      translateX = e.clientX - startX;
+      translateY = e.clientY - startY;
+      updateTransform();
+    });
+    document.addEventListener("mouseup", function() {
+      if (isDragging) {
+        isDragging = false;
+        container.style.cursor = scale > 1 ? "grab" : "default";
+      }
+    });
+    container.addEventListener("dblclick", function(e) {
+      e.preventDefault();
+      if (scale > 1) {
+        scale = 1;
+        translateX = 0;
+        translateY = 0;
+        container.style.cursor = "default";
+      } else {
+        scale = 2.5;
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left - rect.width / 2;
+        const mouseY = e.clientY - rect.top - rect.height / 2;
+        translateX = -mouseX * 1.5;
+        translateY = -mouseY * 1.5;
+        container.style.cursor = "grab";
+      }
+      updateTransform();
+    });
+    overlay.onclick = function(e) { if (e.target === overlay) overlay.remove(); };
     img.onclick = function(e) { e.stopPropagation(); };
-    overlay.appendChild(img);
+    overlay.appendChild(container);
   }
   document.body.appendChild(overlay);
 }
