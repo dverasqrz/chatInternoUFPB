@@ -3294,6 +3294,12 @@ function bindEvents() {
       showToast(error.message || "Erro ao enviar mensagem.");
     }
   });
+  els.textContent.addEventListener("keydown", function(e) {
+    if (e.key === "Enter" && !e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage().catch(err => showToast(err.message || "Erro ao enviar mensagem."));
+    }
+  });
   els.searchGlobalBtn.addEventListener("click", () => {
     els.searchGlobalInput.value = "";
     els.searchGlobalStatus.textContent = "";
