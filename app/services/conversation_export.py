@@ -55,13 +55,18 @@ def _message_content(message: Message) -> str:
     return "[sem conteúdo textual]"
 
 
-def _author_label(message: Message, conversation: Conversation, contact_profile: str) -> tuple[str, str]:
+def _author_label(message: Message, conversation: Conversation, contact_profile: str, db: Session | None = None) -> tuple[str, str]:
     if message.direction == MessageDirection.INBOUND:
         display_name = conversation.contact_name or "Cliente sem nome"
         role_label = contact_profile
         return display_name, role_label
-    display_name = message.sender_name or "Funcionário"
-    return display_name, "funcionário"
+    display_name = message.sender_name
+    if not display_name and message.attendant_id and db:
+        from app.models.user import User
+        attendant = db.get(User, message.attendant_id)
+        if attendant:
+            display_name = attendant.name
+    return display_name or "Funcionário", "funcionário"
 
 
 def _resolve_local_media_path(media_url: str | None) -> Path | None:
@@ -120,12 +125,13 @@ def build_export_payload(
     start_time: time,
     end_time: time,
     contact_profile: str | None,
+    db: Session | None = None,
 ) -> ConversationExportResponse:
     normalized_profile = _normalized_contact_profile(contact_profile)
     entries: list[ConversationExportEntry] = []
     for message in messages:
         created_local = message.created_at.astimezone(RECIFE_TZ)
-        author_name, author_role = _author_label(message, conversation, normalized_profile)
+        author_name, author_role = _author_label(message, conversation, normalized_profile, db)
         embedded_image_data_url, _ = _embedded_image_data(message)
         entries.append(
             ConversationExportEntry(

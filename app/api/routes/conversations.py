@@ -580,6 +580,7 @@ def export_conversation_data(
         start_time=start_time,
         end_time=end_time,
         contact_profile=contact_profile,
+        db=db,
     )
 
 
@@ -617,6 +618,7 @@ def export_conversation_pdf(
         start_time=start_time,
         end_time=end_time,
         contact_profile=contact_profile,
+        db=db,
     )
     pdf_bytes = build_pdf_bytes(export_data)
     

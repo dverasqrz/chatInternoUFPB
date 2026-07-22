@@ -2660,6 +2660,7 @@ async function sendMessage() {
   await apiRequest(`/conversations/${state.selectedConversationId}/messages`, { method: "POST", body: JSON.stringify(payload) });
   resetComposer();
   await loadMessages();
+  els.messages.scrollTop = els.messages.scrollHeight;
   await loadConversations(true);
   // Marcar mensagens como lidas ao responder (local + API)
   const msgs = state.messagesByConversation[state.selectedConversationId] || [];
