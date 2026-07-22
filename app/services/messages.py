@@ -1254,9 +1254,9 @@ def ingest_inbound_message(db: Session, payload: dict[str, Any]) -> Conversation
             sender_name = None
         delivery_status = DeliveryStatus.SENT
 
-    # Para mensagens inbound com mídia, tentar baixar e armazenar localmente
+    # Para mensagens com mídia, tentar baixar e armazenar localmente
     media_url = normalized.get("media_url")
-    if direction == MessageDirection.INBOUND and media_url:
+    if media_url:
         local_media_path = _download_whatsapp_media(
             media_url,
             mime_type=normalized.get("media_mime_type"),
