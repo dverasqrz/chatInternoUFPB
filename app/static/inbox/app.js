@@ -2307,7 +2307,9 @@ function renderMessages(messages, options = {}) {
       .map((message) => {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound"
-            ? ((message.sender_name && message.sender_name.trim().toLowerCase() !== "cau") ? message.sender_name : state.user?.name || "Funcionário")
+            ? (message.attendant_id
+                ? (message.sender_name && message.sender_name.trim().toLowerCase() !== "cau" ? message.sender_name : state.user?.name || "Funcionário")
+                : "Ferramenta externa")
             : (message.sender_name || "Cliente");
         const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
@@ -2348,7 +2350,9 @@ function renderMessages(messages, options = {}) {
       .map((message) => {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound"
-            ? ((message.sender_name && message.sender_name.trim().toLowerCase() !== "cau") ? message.sender_name : state.user?.name || "Funcionário")
+            ? (message.attendant_id
+                ? (message.sender_name && message.sender_name.trim().toLowerCase() !== "cau" ? message.sender_name : state.user?.name || "Funcionário")
+                : "Ferramenta externa")
             : (message.sender_name || "Cliente");
         const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';
@@ -2378,7 +2382,9 @@ function renderMessages(messages, options = {}) {
       .map((message) => {
         const klass = message.direction === "outbound" ? "outbound" : "inbound";
         const sender = message.direction === "outbound"
-            ? ((message.sender_name && message.sender_name.trim().toLowerCase() !== "cau") ? message.sender_name : state.user?.name || "Funcionário")
+            ? (message.attendant_id
+                ? (message.sender_name && message.sender_name.trim().toLowerCase() !== "cau" ? message.sender_name : state.user?.name || "Funcionário")
+                : "Ferramenta externa")
             : (message.sender_name || "Cliente");
         const revokeBtn = (message.direction === "outbound" && message.external_message_id) 
             ? `<button class="revoke-msg-btn" onclick="revokeMessage(${message.id}, this)" title="Apagar para todos">🗑️</button>` : '';

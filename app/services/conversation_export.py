@@ -60,8 +60,10 @@ def _author_label(message: Message, conversation: Conversation, contact_profile:
         display_name = conversation.contact_name or "Cliente sem nome"
         role_label = contact_profile
         return display_name, role_label
+    if not message.attendant_id:
+        return "Ferramenta externa", "externa"
     display_name = message.sender_name
-    if not display_name and message.attendant_id and db:
+    if not display_name and db:
         from app.models.user import User
         attendant = db.get(User, message.attendant_id)
         if attendant:
