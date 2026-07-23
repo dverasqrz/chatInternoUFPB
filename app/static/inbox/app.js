@@ -124,6 +124,7 @@ const els = {
   cleanupSystemBtn: document.getElementById("cleanupSystemBtn"),
   cleanupContactsBtn: document.getElementById("cleanupContactsBtn"),
   openReportsBtn: document.getElementById("openReportsBtn"),
+  openReportsBtnUser: document.getElementById("openReportsBtnUser"),
   reportsOverlay: document.getElementById("reportsOverlay"),
   closeReportsBtn: document.getElementById("closeReportsBtn"),
   reportsPeriod: document.getElementById("reportsPeriod"),
@@ -3611,6 +3612,7 @@ function bindEvents() {
     }
   });
   els.openReportsBtn.addEventListener("click", () => openReportsDashboard());
+  els.openReportsBtnUser.addEventListener("click", () => openReportsDashboard());
   els.closeReportsBtn.addEventListener("click", () => closeReportsDashboard());
   els.reportsOverlay.addEventListener("click", (e) => { if (e.target === els.reportsOverlay) closeReportsDashboard(); });
   els.reportsPeriod.addEventListener("change", () => loadReportsData());

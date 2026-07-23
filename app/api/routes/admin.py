@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, extract, case, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_admin
+from app.api.deps import get_current_admin, get_current_user_password_changed
 from app.db.session import get_db
 from app.models.conversation import Conversation
 from app.models.message import Message, MessageDirection
@@ -396,7 +396,7 @@ async def cleanup_contacts(
 @router.get("/reports/summary")
 def get_reports_summary(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -433,7 +433,7 @@ def get_reports_by_period(
     period: str = "daily",
     days: int = 30,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=days)
@@ -460,7 +460,7 @@ def get_reports_by_period(
 def get_reports_hourly(
     days: int = 30,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=days)
@@ -485,7 +485,7 @@ def get_reports_hourly(
 def get_reports_weekday(
     days: int = 30,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=days)
@@ -511,7 +511,7 @@ def get_reports_weekday(
 def get_reports_top_contacts(
     limit: int = 10,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     rows = db.execute(
         select(
@@ -538,7 +538,7 @@ def get_reports_top_contacts(
 def get_reports_by_attendant(
     days: int = 30,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=days)
@@ -577,7 +577,7 @@ def get_reports_by_attendant(
 def get_reports_by_type(
     days: int = 30,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_admin),
+    _: User = Depends(get_current_user_password_changed),
 ) -> dict:
     now = datetime.now(timezone.utc)
     start_date = now - timedelta(days=days)
