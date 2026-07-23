@@ -3373,6 +3373,18 @@ function bindEvents() {
       setComposerVisibility();
     });
   }
+  els.textContent.addEventListener("paste", async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) await uploadImageFromLocal(file);
+        return;
+      }
+    }
+  });
   els.recordAudioBtn.addEventListener("click", () => openRecordModal("audio"));
   els.startRecordBtn.addEventListener("click", async () => {
     await startRecording();
