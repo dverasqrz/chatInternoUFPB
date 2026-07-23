@@ -33,10 +33,11 @@ O projeto e uma aplicacao FastAPI para **atendimento multiatendente via WhatsApp
 - Frontend estatico em `/inbox` (vanilla JS, sem build step)
 - Banco PostgreSQL via SQLAlchemy
 - Integracao com EvolutionAPI v2.3.7 / n8n para envio/recebimento de mensagens
-- Upload de midia (imagens, audios, documentos)
-- Templates de mensagens
+- Upload de midia (imagens, audios, documentos, stickers)
+- Templates de mensagens (7 pre-configurados)
 - Exportacao de conversas (PDF com ReportLab, HTML)
 - Recursos de IA (consulta via n8n, agente automatico)
+- Identificacao de atendente (logado vs. ferramenta externa)
 
 **Stack:** Python 3.12 / FastAPI 0.128.3 / SQLAlchemy 2.0.40 / PostgreSQL / Vanilla JS  
 **Container:** Docker (python:3.12-slim + FFmpeg)  
@@ -49,10 +50,10 @@ O projeto e uma aplicacao FastAPI para **atendimento multiatendente via WhatsApp
 | `app/main.py` | Ponto de entrada - cria `app = create_application()` |
 | `app/core/app_factory.py` | Factory Pattern - configura FastAPI, CORS, rotas, static files, lifespan |
 | `app/core/config.py` | `Settings` (pydantic-settings) - todas as variaveis de ambiente |
-| `app/services/messages.py` | CORE - ingestao de webhooks, normalizacao, envio outbound |
-| `app/static/inbox/app.js` | Frontend vanilla JS (~3000 linhas) |
+| `app/services/messages.py` | CORE - ingestao de webhooks, normalizacao, envio outbound (~1412 linhas) |
+| `app/static/inbox/app.js` | Frontend vanilla JS (~3742 linhas) |
 | `app/static/inbox/index.html` | HTML principal do frontend |
-| `app/static/inbox/styles.css` | Estilos (~2800 linhas) |
+| `app/static/inbox/styles.css` | Estilos (~3148 linhas) |
 
 ### Comandos Uteis
 
@@ -68,6 +69,9 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 # Docker
 docker compose up -d --build
 docker compose logs -f
+
+# Corrigir nomes de contatos
+python scripts/fix_contact_names.py
 ```
 
 ---
@@ -101,7 +105,8 @@ docker compose logs -f
    - `ensure_schema_compatibility(engine)` - ADD COLUMN IF NOT EXISTS
    - `ensure_initial_admin_user(db)` - cria admin se nao existir
    - `get_or_create_runtime_settings(db)` - singleton
-   - `_initialize_system_templates(db)` - templates LGPD/Pesquisa
+   - `_initialize_system_templates(db)` - 7 templates LGPD/Pesquisa
+   - `_cleanup_invalid_contacts(db)` - remove conversas vazias
    - `sync_webhook_urls_on_startup()` - env -> banco
    - `media_storage_path.mkdir()` - garante diretorio de midia
 
@@ -115,17 +120,19 @@ Ao acessar `/`, redireciona para `/inbox`.
 3. `_validate_inbound_token()` valida token (env ou banco)
 4. `ingest_inbound_message()`:
    - Normaliza telefone via `_normalize_phone()`
-   - Detecta tipo via `_extract_type()`
+   - Detecta tipo via `_extract_type()` (sticker normalizado como image)
    - Extrai midia de base64 ou baixa da CDN
+   - Baixa midia para mensagens inbound E outbound
    - Cria `Conversation` se nao existir
    - Cria `Message` com `direction=inbound`, `delivery_status=received`
    - Atualiza `conversation.last_message_at`
    - Opcionalmente encaminha para agente IA (background task)
 
-**Outbound (Sistema -> WhatsApp):**
+**Outbound (Sistema -> WhatsApp) - Funcionario Logado:**
 1. Atendente envia via frontend (POST `/conversations/{id}/messages`)
 2. `create_outbound_message()`:
-   - Cria `Message` com `direction=outbound`, `delivery_status=queued`
+   - Cria `Message` com `attendant_id=attendant.id`, `sender_name=attendant.name`
+   - `delivery_status=queued`
    - Atualiza `conversation.last_message_at` e `attendant.last_interaction_at`
    - Busca URL outbound efetiva (env > banco)
    - Monta payload para n8n (to, text, media, attendant)
@@ -133,6 +140,11 @@ Ao acessar `/`, redireciona para `/inbox`.
    - POST com timeout 20s
    - Sucesso -> `delivery_status=SENT`
    - Erro -> `delivery_status=FAILED` + `error_message`
+
+**Outbound Externo (Chatwoot/WhatsApp/n8n -> Sistema):**
+1. Webhook chega com `event=send.message` e `fromMe=true`
+2. `ingest_inbound_message()` cria `Message` com `attendant_id=NULL`
+3. Frontend exibe como "Ferramenta externa"
 
 **Status Update (WhatsApp -> Sistema):**
 1. EvolutionAPI envia `messages.update` com status
@@ -191,7 +203,7 @@ chatZapUFPB/
 │   │   ├── login_challenge.py      # Challenge-response
 │   │   ├── runtime_settings.py     # Cache de RuntimeSettings
 │   │   ├── schema_maintenance.py   # ALTER TABLEs (ADD COLUMN IF NOT EXISTS)
-│   │   ├── conversation_export.py  # Geracao PDF/HTML
+│   │   ├── conversation_export.py  # Geracao PDF/HTML (com attendant_id)
 │   │   ├── template_service.py     # CRUD de templates
 │   │   ├── webhook_sync.py         # Sync env -> banco
 │   │   ├── webhook_utils.py        # Token de webhook
@@ -200,7 +212,17 @@ chatZapUFPB/
 │   ├── static/inbox/               # Frontend vanilla JS
 │   └── utils/
 │       └── security.py             # JWT, hash (USADO pelas rotas atuais)
-├── scripts/                        # Scripts de diagnostico e suporte
+├── scripts/
+│   ├── startup_check.py            # Verificacao FFmpeg e diretorios
+│   ├── verify_dependencies.py      # Diagnostico completo
+│   ├── check_ffmpeg.py             # Teste detalhado FFmpeg
+│   ├── test_webhook.py             # POST manual para webhook
+│   ├── debug_download.py           # Teste de download base64
+│   ├── migrate_enum.py             # Migracao de enums PostgreSQL
+│   ├── init_templates.py           # Templates LGPD/Pesquisa
+│   ├── fix_contact_names.py        # Corrige nomes "Voce" com nomes reais
+│   ├── deploy.sh                   # Deploy historico
+│   └── test_compression.py         # Teste de compressao de video
 ├── Dockerfile                      # Python 3.12 + FFmpeg
 ├── docker-compose.yml              # Compose para EasyPanel
 ├── requirements.txt                # Dependencias PyPI
@@ -213,7 +235,7 @@ chatZapUFPB/
 
 ## 4. Inicializacao da Aplicacao
 
-### Startup Sequence (app_factory.py:279-342)
+### Startup Sequence (app_factory.py)
 
 ```
 1. _wait_for_database()           # SELECT 1 com retry (30x, 2s intervalo)
@@ -221,9 +243,10 @@ chatZapUFPB/
 3. ensure_schema_compatibility()  # ADD COLUMN IF NOT EXISTS para todos os campos novos
 4. ensure_initial_admin_user()    # Cria admin se tabela vazia
 5. get_or_create_runtime_settings() # Singleton id=1
-6. _initialize_system_templates() # LGPD + Pesquisa se nao existirem
-7. sync_webhook_urls_on_startup() # Sincroniza URLs de env para o banco
-8. media_storage_path.mkdir()     # Garante diretorio de uploads
+6. _initialize_system_templates() # 7 templates (LGPD, Pesquisa, Contatos, Chamado, Identidade, Permissoes)
+7. _cleanup_invalid_contacts()    # Remove conversas sem mensagens
+8. sync_webhook_urls_on_startup() # Sincroniza URLs de env para o banco
+9. media_storage_path.mkdir()     # Garante diretorio de uploads
 ```
 
 ### Schema Migration (schema_maintenance.py)
@@ -234,7 +257,8 @@ Campos migrados:
 - `users`: `last_login_at`, `last_logout_at`, `last_interaction_at`
 - `runtime_settings`: `outbound_auth_*`, `ai_provider`, `ai_api_key`, `ai_base_url`, `ai_model`
 - `conversations`: `profile_picture_url`
-- `messages`: `updated_at`, `is_edited`, `is_read`, `quoted_message_text`, `quoted_message_sender`
+- `messages`: `updated_at`, `is_edited`, `is_read`, `quoted_message_text`, `quoted_message_sender`, `quoted_message_id`, `quoted_message_participant`
+- `message_type` enum: valor `sticker` adicionado
 
 ---
 
@@ -299,10 +323,15 @@ Nao misture as duas APIs sem revisar o formato do JWT.
 | `N8N_OUTBOUND_WEBHOOK_URL_TEST` | `n8n_outbound_webhook_url_test` | URL opcional | URL outbound (test) |
 | `N8N_OUTBOUND_WEBHOOK_URL_PROD` | `n8n_outbound_webhook_url_prod` | URL opcional | URL outbound (prod) |
 | `N8N_OUTBOUND_AUTH_TYPE` | `n8n_outbound_auth_type` | `none\|header\|basic\|jwt` | Tipo de auth outbound |
+| `N8N_OUTBOUND_AUTH_HEADER_NAME` | `n8n_outbound_auth_header_name` | `str` | Nome do header |
+| `N8N_OUTBOUND_AUTH_HEADER_VALUE` | `n8n_outbound_auth_header_value` | `str` | Valor do header |
+| `N8N_OUTBOUND_AUTH_BASIC_USERNAME` | `n8n_outbound_auth_basic_username` | `str` | Usuario Basic |
+| `N8N_OUTBOUND_AUTH_BASIC_PASSWORD` | `n8n_outbound_auth_basic_password` | `str` | Senha Basic |
+| `N8N_OUTBOUND_AUTH_JWT_TOKEN` | `n8n_outbound_auth_jwt_token` | `str` | Token Bearer |
 
 **IMPORTANTE:** `N8N_INBOUND_WEBHOOK_URL` e `N8N_OUTBOUND_WEBHOOK_URL` (sem `_TEST`/`_PROD`) NAO sao campos reais e sao ignorados por `extra="ignore"`.
 
-Propriedades computadas (config.py:150-160):
+Propriedades computadas (config.py):
 - `n8n_inbound_webhook_url` -> retorna `_test` ou `_prod` conforme `n8n_webhook_mode`
 - `n8n_outbound_webhook_url` -> retorna `_test` ou `_prod` conforme `n8n_webhook_mode`
 - `ai_agent_webhook_url` -> retorna `_test` ou `_prod` conforme `ai_webhook_mode`
@@ -365,7 +394,7 @@ Relacao: `outbound_messages` com `Message.attendant`.
 | `id` | Integer | PK | ID unico |
 | `contact_phone` | String(30) | UNIQUE, NOT NULL | Telefone normalizado `+<digitos>` |
 | `contact_name` | String(120) | nullable | Nome do contato |
-| `profile_picture_url` | String(1000) | nullable | URL da foto |
+| `profile_picture_url` | String(1000) | nullable | URL da foto (local ou externa) |
 | `created_at` | TIMESTAMPTZ | NOT NULL | Criacao |
 | `last_message_at` | TIMESTAMPTZ | NOT NULL | Para ordenar inbox |
 
@@ -376,7 +405,7 @@ Relacao: `messages` com cascade `all, delete-orphan`.
 **Enums:**
 
 - `MessageDirection`: `inbound`, `outbound`
-- `MessageType`: `text`, `image`, `audio`, `video`, `document`
+- `MessageType`: `text`, `image`, `audio`, `video`, `document`, `sticker`
 - `DeliveryStatus`: `received`, `queued`, `sent`, `delivered`, `read`, `failed`
 
 | Campo | Tipo | Constraints | Descricao |
@@ -384,15 +413,15 @@ Relacao: `messages` com cascade `all, delete-orphan`.
 | `id` | Integer | PK | ID unico |
 | `conversation_id` | Integer | FK conversations, NOT NULL | Conversa |
 | `direction` | Enum | NOT NULL | inbound/outbound |
-| `message_type` | Enum | NOT NULL | text/image/audio/video/document |
+| `message_type` | Enum | NOT NULL | text/image/audio/video/document/sticker |
 | `delivery_status` | Enum | NOT NULL | Status atual |
 | `text_content` | Text | nullable | Conteudo textual |
 | `media_url` | Text | nullable | URL local `/uploads/...` ou externa |
 | `media_mime_type` | String(150) | nullable | MIME type |
-| `media_caption` | Text | nullable | Legenda |
+| `media_caption` | Text | nullable | Legenda (image/video/document) |
 | `sender_name` | String(120) | nullable | Nome do remetente |
 | `sender_phone` | String(30) | nullable | Telefone do remetente |
-| `attendant_id` | Integer | FK users, nullable | Atendente (outbound) |
+| `attendant_id` | Integer | FK users, nullable | Atendente (NULL = ferramenta externa) |
 | `external_message_id` | String(150) | nullable, index | ID WhatsApp/Evolution |
 | `raw_payload` | JSON | nullable | Payload original |
 | `error_message` | Text | nullable | Erro de envio |
@@ -402,6 +431,13 @@ Relacao: `messages` com cascade `all, delete-orphan`.
 | `is_read` | Boolean | NOT NULL, default False | Mensagem lida |
 | `quoted_message_text` | Text | nullable | Texto da mensagem citada |
 | `quoted_message_sender` | String(120) | nullable | Remetente da mensagem citada |
+| `quoted_message_id` | String(150) | nullable | ID da mensagem citada (stanzaId) |
+| `quoted_message_participant` | String(150) | nullable | JID do remetente da mensagem citada |
+
+**Logica de `attendant_id`:**
+- Preenchido quando o atendente envia mensagem logged no FastAPI (`create_outbound_message`)
+- NULL quando a mensagem vem de ferramenta externa (Chatwoot, WhatsApp, n8n)
+- Frontend e exportacao usam para distinguir "Nome do Funcionario" vs "Ferramenta externa"
 
 ### runtime_settings (app/models/runtime_settings.py)
 
@@ -437,7 +473,14 @@ Singleton com `id=1`:
 | `is_system` | Boolean | Template de sistema |
 | `created_by` | Integer | ID do criador |
 
-Templates de sistema sao criados no startup (LGPD + Pesquisa).
+Templates de sistema (7) sao criados no startup e recriados a cada boot:
+1. LGPD Bom dia
+2. LGPD Boa tarde
+3. Pesquisa de Satisfacao
+4. Contatos Secretaria STI
+5. Abertura de Chamado
+6. Confirmacao de Identidade
+7. Permissoes SIPAC-PROTOCOLO
 
 ---
 
@@ -490,20 +533,20 @@ Use a mais restritiva compativel com o endpoint.
 
 | Metodo | Rota | Auth | Descricao |
 | --- | --- | --- | --- |
-| `GET` | `/conversations` | JWT | Lista conversas com mensagens |
+| `GET` | `/conversations` | JWT | Lista conversas com `unread_count` |
 | `POST` | `/conversations` | JWT | Cria conversa manual |
 | `GET` | `/conversations/contacts/all` | JWT | Todos os contatos |
-| `GET` | `/conversations/search/messages?q=` | JWT | Busca em mensagens (min 3 chars) |
+| `GET` | `/conversations/search/messages?q=` | JWT | Busca em mensagens (min 3 chars, inclui media_caption) |
 | `GET` | `/conversations/{id}/messages` | JWT | Lista mensagens |
-| `POST` | `/conversations/{id}/messages` | JWT | Envia mensagem outbound |
+| `POST` | `/conversations/{id}/messages` | JWT | Envia mensagem (com quote) |
 | `PATCH` | `/conversations/{id}/messages/{id}/edit` | JWT | Edita mensagem outbound |
 | `POST` | `/conversations/{id}/messages/{id}/revoke` | JWT | Revoga mensagem |
 | `POST` | `/conversations/{id}/messages/read` | JWT | Marca como lida |
 | `POST` | `/conversations/{id}/messages/delete-selected` | Admin | Delete em lote |
 | `DELETE` | `/conversations/{id}/messages/all` | Admin | Apaga todas da conversa |
 | `DELETE` | `/conversations/messages/all` | Admin | Apaga tudo |
-| `GET` | `/conversations/{id}/export` | JWT | Export JSON |
-| `GET` | `/conversations/{id}/export/pdf` | JWT | Export PDF |
+| `GET` | `/conversations/{id}/export` | JWT | Export JSON (com start_date/end_date) |
+| `GET` | `/conversations/{id}/export/pdf` | JWT | Export PDF (com start_date/end_date) |
 
 ### Webhooks (app/api/routes/webhook.py)
 
@@ -514,7 +557,7 @@ Use a mais restritiva compativel com o endpoint.
 - `POST /webhook`
 - `POST /api/inbox`
 
-Headers para token: `x-webhook-token`, `x-token`, `Authorization: Bearer`, query `?token=`
+Headers aceitos para token: `x-webhook-token`, `x-token`, `Authorization: Bearer`, query `?token=`
 
 Todas chamam `_handle_webhook_payload()` que:
 1. Valida token
@@ -543,7 +586,7 @@ Todas chamam `_handle_webhook_payload()` que:
 | `PUT` | `/templates/{id}` | Admin | Atualiza template |
 | `DELETE` | `/templates/{id}` | Admin | Remove template |
 | `GET` | `/templates/category/{category}` | JWT | Por categoria |
-| `POST` | `/templates/initialize` | Admin | Cria LGPD/Pesquisa |
+| `POST` | `/templates/initialize` | Admin | Cria templates LGPD/Pesquisa |
 
 ### Uploads (app/api/routes/uploads_v2.py, prefixo `/uploads`)
 
@@ -570,7 +613,7 @@ Todas chamam `_handle_webhook_payload()` que:
 
 ## 9. Servico de Mensagens e Webhooks
 
-### Arquivo: app/services/messages.py (~1350 linhas)
+### Arquivo: app/services/messages.py (~1412 linhas)
 
 Este e o coracao do sistema. Contem toda a logica de ingestao, normalizacao e envio.
 
@@ -585,42 +628,52 @@ Este e o coracao do sistema. Contem toda a logica de ingestao, normalizacao e en
 #### `_extract_type(raw_type, has_media, message) -> MessageType`
 Detecta tipo da mensagem por:
 1. `raw_type` (string com "document", "image", "audio", "video")
-2. Chaves no `message` (documentMessage, imageMessage, etc.)
-3. Fallback para TEXT
+2. Chaves no `message` (documentMessage, imageMessage, stickerMessage, etc.)
+3. Document tem PRIORIDADE sobre image (quando ambos presentes)
+4. Fallback para TEXT
 
-#### `_download_whatsapp_media(data, message_id, instance, message_type, mime_type)`
-- Prioriza base64 em `data.message.base64` (ou `data.base64`)
-- Fallback: download da CDN via EvolutionAPI
+#### `_download_whatsapp_media(url, mime_type, message_type, raw_payload) -> str | None`
+- Prioriza base64 em `imageMessage.base64`, `stickerMessage.base64`
+- Fallback: `message.base64` (root level)
+- Fallback: `data.base64` (data level)
+- Fallback: download da CDN via URL
 - Salva em `settings.media_storage_path`
 - Retorna `/uploads/<filename>`
 - Suporta dict com chaves numericas e string base64
 
-#### `_download_profile_picture(payload, contact_phone)`
+#### `_download_profile_picture(url, server_url, apikey, instance) -> str | None`
 - Busca URL da foto no payload ou via EvolutionAPI
 - Salva localmente com prefixo `profile_`
 - Retorna `/uploads/<filename>`
 
 #### `normalize_webhook_payload(payload) -> dict`
 Normaliza payload bruto em evento estruturado:
-- `event`: tipo do evento (messages.upsert, messages.update, contacts.upsert, etc.)
+- `event`: tipo do evento (messages.upsert, messages.update, contacts.upsert, send.message, etc.)
 - `contact_phone`: telefone normalizado
-- `contact_name`: nome do contato
+- `contact_name`: nome do contato (pushName)
 - `message_type`: MessageType
 - `text_content`: texto
-- `media_url`: URL local
+- `media_url`: URL local ou externa
 - `media_mime_type`: MIME
+- `media_caption`: legenda
 - `sender`: remetente
 - `direction`: inbound/outbound
-- `key_id`: ID da mensagem
-- `status`: DeliveryStatus (para updates)
+- `external_message_id`: ID da mensagem
 - `delivery_status`: mapeado de string/numero
+- `attendant_id`: preenchido apenas para atendente logado
 
 **Eventos suportados:**
 - `contacts.upsert` / `contacts.update` - atualizacao de contato
 - `messages.upsert` - nova mensagem (inclui `secretEncryptedMessage`, `editedMessage`)
 - `messages.update` - atualizacao de status ou edicao
 - `messages.delete` - marcacao como apagada
-- `messages.edited` - futuro (EvolutionAPI v2.3.7 nao tem)
+- `send.message` - outbound externo (n8n/Chatwoot/WhatsApp)
+
+**LID Resolution:**
+Quando `remoteJid` contem `@lid`:
+1. Tenta `remoteJidAlt` (telefone alternativo)
+2. Tenta `sender` (remitente do payload)
+3. Tenta `payload.sender` (nivel raiz)
 
 #### `ingest_inbound_message(db, payload) -> Message | Conversation | None`
 1. Chama `normalize_webhook_payload()`
@@ -629,21 +682,26 @@ Normaliza payload bruto em evento estruturado:
 4. Ignora `contact_phone == sender` (auto-mensagem)
 5. `messages.update` -> atualiza status
 6. `messages.delete` -> marca apagada
-7. Cria ou atualiza `Conversation`
-8. Atualiza `profile_picture_url`
-9. `contacts.upsert` -> retorna conversa sem criar mensagem
+7. `contacts.upsert` / `contacts.update` -> retorna conversa sem criar mensagem (NAO cria conversas vazias)
+8. Cria ou atualiza `Conversation`
+9. Atualiza `profile_picture_url`
 10. Evita duplicata por `external_message_id`
-11. Outbound recente sem `external_id` -> tenta casar por texto
-12. Cria `Message`
+11. Dedup universal: por texto, tipo de midia, ou qualquer mensagem recente sem ext_id
+12. Baixa midia localmente (para inbound E outbound)
+13. Cria `Message`
+
+**Filtro de nomes placeholder:**
+Nomes "Voce", "Voce", "Eu" sao filtrados em `_get_or_create_conversation()` e `ingest_inbound_message()`.
 
 #### `create_outbound_message(db, conversation, attendant, data) -> Message`
-1. Cria `Message` OUTBOUND com QUEUED
-2. Atualiza `conversation.last_message_at` e `attendant.last_interaction_at`
-3. Busca URL outbound (env > banco)
-4. Monta payload para n8n
-5. Auth conforme configuracao
-6. POST timeout 20s
-7. Sucesso -> SENT, erro -> FAILED
+1. Cria `Message` OUTBOUND com `attendant_id=attendant.id`, `sender_name=attendant.name`
+2. `delivery_status=queued`
+3. Atualiza `conversation.last_message_at` e `attendant.last_interaction_at`
+4. Busca URL outbound (env > banco)
+5. Monta payload para n8n (to, text, media, attendant, quoted_message_*)
+6. Auth conforme configuracao
+7. POST timeout 20s
+8. Sucesso -> SENT, erro -> FAILED
 
 ### Deteccao de Edicao
 
@@ -667,7 +725,9 @@ Procura texto recursivamente nas chaves do dict.
 ### Deduplicacao
 
 - Por `external_message_id`: evita duplicatas diretas
+- Por tipo de midia + janela de 2 minutos: evita duplicatas de outbound sem ID
 - Por texto + janela de 2 minutos: evita duplicatas de outbound sem ID
+- Outbound universal: qualquer mensagem recente sem `external_message_id` na mesma conversa e candidata a match
 - Comparacao Python (nao SQL) para lidar com `NULL = NULL` (retorna NULL, nao TRUE)
 
 ### Status Mapping
@@ -684,6 +744,13 @@ Procura texto recursivamente nas chaves do dict.
 
 Mapping usa string-first: tenta `status_string_map` antes de `int()` com try/except.
 
+### Normalizacao de Midia
+
+**Stickers:**
+- `stickerMessage` normalizado para `imageMessage` (compatibilidade n8n)
+- `MessageType.STICKER` adicionado ao enum
+- PostgreSQL enum migration: `ALTER TYPE message_type ADD VALUE IF NOT EXISTS 'sticker'`
+
 ---
 
 ## 10. Frontend
@@ -691,8 +758,8 @@ Mapping usa string-first: tenta `status_string_map` antes de `int()` com try/exc
 ### Arquivos
 
 - `app/static/inbox/index.html` - HTML principal
-- `app/static/inbox/app.js` - Logica (~3000 linhas)
-- `app/static/inbox/styles.css` - Estilos (~2800 linhas)
+- `app/static/inbox/app.js` - Logica (~3742 linhas)
+- `app/static/inbox/styles.css` - Estilos (~3148 linhas)
 - `app/static/inbox/img/` - Logos (brasao.png, sti_logo.png)
 
 ### Estado Global (app.js)
@@ -710,6 +777,7 @@ Mapping usa string-first: tenta `status_string_map` antes de `int()` com try/exc
 | `state.audioContext` / `state.analyser` | Gravacao de audio |
 | `state.messageTemplates` | Templates carregados |
 | `state.publicConfig` | Resposta de `/auth/config` |
+| `state.replyToMessage` | Mensagem sendo respondida (citacao) |
 
 ### Objeto `els`
 
@@ -718,41 +786,67 @@ Mapeamento de IDs do HTML para variaveis JS. Grupos sensiveis:
 - Login: `loginOverlay`, `loginForm`, `loginEmail`, `loginPassword`, `challengeQuestion`, `challengeAnswer`
 - Senha: `passwordOverlay`, `passwordForm`, `currentPassword`, `newPassword`
 - Chat: `conversationList`, `chatTitle`, `chatSubtitle`, `messageCountBadge`, `messages`
-- Composer: `messageType`, `textContent`, `mediaUrl`, `mediaCaption`, `imageFileInput`, `sendMessageBtn`
+- Composer: `messageType`, `textContent`, `mediaUrl`, `mediaCaption`, `mediaMimeType`, `imageFileInput`, `sendMessageBtn`
 - Templates: `templatesOverlay`, `templatesList`
-- Export: `exportOverlay`, `exportDate`, `exportStartTime`, `exportEndTime`
+- Export: `exportOverlay`, `exportStartDate`, `exportEndDate`, `exportStartTime`, `exportEndTime`
 - IA: `aiConsultOverlay`, `aiQuestion`, `aiResponse`, `configAiProvider`, `configAiAgentEnabled`
 
 ### Funcionalidades
 
-- **Login com challenge-response**
-- **Sidebar** ordenada por `last_message_at`
-- **Chat** com mensagens (texto, imagem, audio, documento)
+- **Login com challenge-response** - anti-bots
+- **Sidebar** ordenada por `last_message_at` com badge de nao lidas
+- **Chat** com mensagens (texto, imagem, audio, video, documento, sticker)
 - **Composer** com upload, gravacao audio, templates (trigger `/`)
+- **Envio por Enter** - Ctrl+Enter ou Shift+Enter para nova linha
+- **Colar imagem** - Ctrl+V cola imagem do clipboard (mesmo fluxo de upload)
 - **Edicao inline** - botao em mensagens outbound de texto
-- **Revogacao** - botao de apagar
-- **Mensagens nao lidas** - indicador visual
-- **Citacao** - visualizacao de mensagem respondida
-- **Modal de midia** - clique em imagem abre em tamanho completo
+- **Revogacao** - botao de apagar para todos
+- **Citacao** - botao de resposta com preview da mensagem original
+- **Mensagens nao lidas** - indicador visual com gradiente verde e animacao
+- **Identificacao** - nome do funcionario ou "Ferramenta externa"
+- **Zoom de imagens** - modal com zoom via mouse wheel, pan ao arrastar, duplo clique
 - **Preview de arquivo** - thumbnail apos upload
-- **Templates** - modal de selecao
-- **Exportacao** - PDF e HTML
+- **Templates** - modal de selecao com trigger por `/`
+- **Exportacao** - modal com range de datas para PDF/HTML
 - **Config IA** - toggle e selecao de provider
+- **Scroll automatico** - rola para o final apos enviar mensagem
 
 ### Scroll Preservation
 
-`renderMessages()` verifica `wasAtBottom` antes de substituir `innerHTML`. So faz scroll to bottom se o usuario ja estava no fundo ou se e o primeiro render.
+`renderMessages()` verifica `wasAtBottom` antes de substituir `innerHTML`. So faz scroll to bottom se o usuario ja estava no fundo ou se e o primeiro render. Apos enviar mensagem, `sendMessage()` força scroll para o final.
 
 ### buildMessageBody()
 
 Gera HTML interno da mensagem:
 - `.message-quote` para mensagens citadas
-- `<img>` para imagens com `openMediaModal()`
+- `<img>` para imagens com `openMediaModal()` e `.message-sticker` para stickers
 - `<video>` para videos com controles
 - `<audio>` para audios
-- `<a>` para documentos
+- `<a>` para documentos (mostra caption mesmo sem media_url)
 - `.message-edited` para mensagens editadas
 - Texto com `formatWhatsAppText()` (negrito, italico, tachado, codigo)
+
+### renderMessages()
+
+Tres modos de renderizacao:
+1. **append** - adiciona novas mensagens no final com animacao e scroll suave
+2. **prepend** - adiciona no topo preservando posicao do scroll
+3. **full render** - substitui todo o conteudo (usa fragment para evitar piscamento)
+
+### Identificacao de Atendente
+
+Para mensagens outbound, o sender e determinado por:
+```javascript
+const sender = message.direction === "outbound"
+    ? (message.attendant_id
+        ? (message.sender_name || state.user?.name || "Funcionário")
+        : "Ferramenta externa")
+    : (message.sender_name || "Cliente");
+```
+
+### Filtro de Nomes
+
+Nomes que comecam com "cau" (case-insensitive) sao substituidos pelo nome do usuario logado.
 
 ---
 
@@ -831,6 +925,7 @@ Executado no CMD do Dockerfile:
 - `debug_download.py` - Teste de download base64
 - `migrate_enum.py` - Migracao de enums PostgreSQL
 - `init_templates.py` - Templates LGPD/Pesquisa
+- `fix_contact_names.py` - Corrige contatos "Voce" extraindo nomes reais do pushName
 
 ---
 
@@ -862,11 +957,13 @@ Executado no CMD do Dockerfile:
 
 11. **CSS brace mismatch** pre-existente por volta da linha 2788 em `styles.css` (documentado, nao corrigido).
 
+12. **`send.message`** e um evento da n8n/EvolutionAPI que nao e `messages.upsert` - o sistema trata como mensagem regular na secao "Mensagens regulares" de `normalize_webhook_payload`.
+
 ### Infra
 
-12. **`docker-compose.production.yml`** e `scripts/deploy.sh` esperam arquivos que nao existem.
+13. **`docker-compose.production.yml`** e `scripts/deploy.sh` esperam arquivos que nao existem.
 
-13. **`init.sql`** contem apenas comentario deprecado - bootstrap agora e feito pelo app.
+14. **`init.sql`** contem apenas comentario deprecado - bootstrap agora e feito pelo app.
 
 ---
 
@@ -881,6 +978,7 @@ Executado no CMD do Dockerfile:
 - [ ] Se mexer em modelo, revise schema Pydantic, rotas, frontend e `schema_maintenance.py`
 - [ ] Se mexer no HTML, revise todas as chaves em `els` do `app.js`
 - [ ] Se mexer no fluxo de mensagens, teste inbound, outbound, update, delete/revoke e deduplicacao
+- [ ] Verifique se `attendant_id` e tratado corretamente (NULL = ferramenta externa)
 
 ### Depois de Alterar
 
@@ -891,9 +989,11 @@ Executado no CMD do Dockerfile:
   - [ ] `/api/v1/docs`
   - [ ] Login com challenge
   - [ ] Listagem de conversas
-  - [ ] Envio de mensagem
+  - [ ] Envio de mensagem (verifique `attendant_id`)
   - [ ] Upload de midia
+  - [ ] Colar imagem (Ctrl+V)
   - [ ] Webhook inbound com token
+  - [ ] Mensagem de ferramenta externa (deve mostrar "Ferramenta externa")
   - [ ] Telas admin se afetar
 
 ### Regras de Codigo
@@ -959,6 +1059,14 @@ Executado no CMD do Dockerfile:
 - `app/static/inbox/styles.css`
 - `app/static/inbox/img/brasao.png`
 - `app/static/inbox/img/sti_logo.png`
+
+### Scripts
+- `scripts/startup_check.py`
+- `scripts/fix_contact_names.py`
+- `scripts/verify_dependencies.py`
+- `scripts/test_webhook.py`
+- `scripts/migrate_enum.py`
+- `scripts/init_templates.py`
 
 ### Infra
 - `Dockerfile`
