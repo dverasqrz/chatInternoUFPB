@@ -1,10 +1,13 @@
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import func, extract, case, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_admin
 from app.db.session import get_db
+from app.models.conversation import Conversation
+from app.models.message import Message, MessageDirection
 from app.models.runtime_settings import RuntimeSettings
 from app.models.user import User
 from app.schemas.admin import (
@@ -15,6 +18,7 @@ from app.services.runtime_settings import get_or_create_runtime_settings, invali
 from app.core.config import get_settings
 import os
 import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -385,3 +389,217 @@ async def cleanup_contacts(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao apagar contatos: {str(e)}"
         )
+
+
+# ─── Report Endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/reports/summary")
+def get_reports_summary(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_ago = now - timedelta(days=7)
+
+    total_conversations = db.scalar(select(func.count()).select_from(Conversation)) or 0
+    total_messages = db.scalar(select(func.count()).select_from(Message)) or 0
+    messages_today = db.scalar(
+        select(func.count()).select_from(Message).where(Message.created_at >= today_start)
+    ) or 0
+    messages_week = db.scalar(
+        select(func.count()).select_from(Message).where(Message.created_at >= week_ago)
+    ) or 0
+    first_message_date = db.scalar(
+        select(func.min(Message.created_at))
+    )
+    avg_per_day = 0.0
+    if first_message_date:
+        days_since_first = max((now - first_message_date).days, 1)
+        avg_per_day = round(total_messages / days_since_first, 1)
+
+    return {
+        "total_conversations": total_conversations,
+        "total_messages": total_messages,
+        "messages_today": messages_today,
+        "messages_last_7_days": messages_week,
+        "average_per_day": avg_per_day,
+        "first_message_at": first_message_date.isoformat() if first_message_date else None,
+    }
+
+
+@router.get("/reports/by-period")
+def get_reports_by_period(
+    period: str = "daily",
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=days)
+
+    base_query = select(
+        func.date(Message.created_at).label("period"),
+        func.count().label("count"),
+    ).where(Message.created_at >= start_date).group_by(func.date(Message.created_at)).order_by(func.date(Message.created_at))
+
+    if period == "monthly":
+        base_query = select(
+            func.date_trunc("month", Message.created_at).label("period"),
+            func.count().label("count"),
+        ).where(Message.created_at >= start_date).group_by(func.date_trunc("month", Message.created_at)).order_by(func.date_trunc("month", Message.created_at))
+
+    rows = db.execute(base_query).all()
+    return {
+        "period": period,
+        "data": [{"period": str(r.period), "count": r.count} for r in rows],
+    }
+
+
+@router.get("/reports/hourly")
+def get_reports_hourly(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=days)
+
+    rows = db.execute(
+        select(
+            extract("hour", Message.created_at).label("hour"),
+            func.count().label("count"),
+        )
+        .where(Message.created_at >= start_date)
+        .group_by(extract("hour", Message.created_at))
+        .order_by(extract("hour", Message.created_at))
+    ).all()
+
+    hours = {r.hour: r.count for r in rows}
+    return {
+        "data": [{"hour": h, "count": hours.get(h, 0)} for h in range(24)],
+    }
+
+
+@router.get("/reports/weekday")
+def get_reports_weekday(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=days)
+
+    rows = db.execute(
+        select(
+            extract("dow", Message.created_at).label("weekday"),
+            func.count().label("count"),
+        )
+        .where(Message.created_at >= start_date)
+        .group_by(extract("dow", Message.created_at))
+        .order_by(extract("dow", Message.created_at))
+    ).all()
+
+    weekday_names = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab"]
+    weekday_map = {r.weekday: r.count for r in rows}
+    return {
+        "data": [{"weekday": weekday_names[i], "count": weekday_map.get(i, 0)} for i in range(7)],
+    }
+
+
+@router.get("/reports/top-contacts")
+def get_reports_top_contacts(
+    limit: int = 10,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    rows = db.execute(
+        select(
+            Conversation.contact_phone,
+            Conversation.contact_name,
+            func.count(Message.id).label("message_count"),
+        )
+        .join(Message, Message.conversation_id == Conversation.id)
+        .where(Message.direction == MessageDirection.INBOUND)
+        .group_by(Conversation.contact_phone, Conversation.contact_name)
+        .order_by(func.count(Message.id).desc())
+        .limit(limit)
+    ).all()
+
+    return {
+        "data": [
+            {"phone": r.contact_phone, "name": r.contact_name or "Sem nome", "count": r.message_count}
+            for r in rows
+        ],
+    }
+
+
+@router.get("/reports/by-attendant")
+def get_reports_by_attendant(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=days)
+
+    with_ext = case(
+        (Message.attendant_id.is_(None), "Ferramenta externa"),
+        else_=None,
+    )
+
+    rows = db.execute(
+        select(
+            case(
+                (Message.attendant_id.is_(None), "Ferramenta externa"),
+                else_=User.name,
+            ).label("attendant_name"),
+            func.count(Message.id).label("count"),
+        )
+        .outerjoin(User, User.id == Message.attendant_id)
+        .where(Message.direction == MessageDirection.OUTBOUND)
+        .where(Message.created_at >= start_date)
+        .group_by(
+            case(
+                (Message.attendant_id.is_(None), "Ferramenta externa"),
+                else_=User.name,
+            )
+        )
+        .order_by(func.count(Message.id).desc())
+    ).all()
+
+    return {
+        "data": [{"name": r.attendant_name or "Ferramenta externa", "count": r.count} for r in rows],
+    }
+
+
+@router.get("/reports/by-type")
+def get_reports_by_type(
+    days: int = 30,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    now = datetime.now(timezone.utc)
+    start_date = now - timedelta(days=days)
+
+    rows = db.execute(
+        select(
+            Message.message_type,
+            func.count(Message.id).label("count"),
+        )
+        .where(Message.created_at >= start_date)
+        .group_by(Message.message_type)
+        .order_by(func.count(Message.id).desc())
+    ).all()
+
+    type_names = {
+        "text": "Texto",
+        "image": "Imagem",
+        "audio": "Audio",
+        "video": "Video",
+        "document": "Documento",
+        "sticker": "Sticker",
+    }
+    return {
+        "data": [{"type": type_names.get(str(r.message_type), str(r.message_type)), "count": r.count} for r in rows],
+    }

@@ -123,6 +123,10 @@ const els = {
   downloadPdfBtn: document.getElementById("downloadPdfBtn"),
   cleanupSystemBtn: document.getElementById("cleanupSystemBtn"),
   cleanupContactsBtn: document.getElementById("cleanupContactsBtn"),
+  openReportsBtn: document.getElementById("openReportsBtn"),
+  reportsOverlay: document.getElementById("reportsOverlay"),
+  closeReportsBtn: document.getElementById("closeReportsBtn"),
+  reportsPeriod: document.getElementById("reportsPeriod"),
   openTemplatesManagerBtn: document.getElementById("openTemplatesManagerBtn"),
   templatesSummary: document.getElementById("templatesSummary"),
   emojiBtn: document.getElementById("emojiBtn"),
@@ -2747,6 +2751,170 @@ async function sendMessage() {
     .catch(() => {});
 }
 
+// ─── Reports Dashboard ─────────────────────────────────────────────────────────
+
+let reportsCharts = {};
+
+function openReportsDashboard() {
+  els.reportsOverlay.classList.remove("hidden");
+  loadReportsData();
+}
+
+function closeReportsDashboard() {
+  els.reportsOverlay.classList.add("hidden");
+  Object.values(reportsCharts).forEach(chart => chart.destroy());
+  reportsCharts = {};
+}
+
+async function loadReportsData() {
+  const days = parseInt(els.reportsPeriod.value) || 30;
+  try {
+    const [summary, byPeriod, hourly, weekday, topContacts, byAttendant, byType] = await Promise.all([
+      apiRequest("/admin/reports/summary"),
+      apiRequest(`/admin/reports/by-period?days=${days}`),
+      apiRequest(`/admin/reports/hourly?days=${days}`),
+      apiRequest(`/admin/reports/weekday?days=${days}`),
+      apiRequest("/admin/reports/top-contacts?limit=10"),
+      apiRequest(`/admin/reports/by-attendant?days=${days}`),
+      apiRequest(`/admin/reports/by-type?days=${days}`),
+    ]);
+
+    document.getElementById("reportTotalContacts").textContent = summary.total_conversations.toLocaleString("pt-BR");
+    document.getElementById("reportTotalMessages").textContent = summary.total_messages.toLocaleString("pt-BR");
+    document.getElementById("reportMessagesToday").textContent = summary.messages_today.toLocaleString("pt-BR");
+    document.getElementById("reportAvgPerDay").textContent = summary.average_per_day.toLocaleString("pt-BR");
+
+    renderReportsCharts(byPeriod, hourly, weekday, topContacts, byAttendant, byType);
+  } catch (error) {
+    console.error("Erro ao carregar relatorios:", error);
+    showToast("Erro ao carregar dados dos relatorios.");
+  }
+}
+
+function renderReportsCharts(byPeriod, hourly, weekday, topContacts, byAttendant, byType) {
+  Object.values(reportsCharts).forEach(chart => chart.destroy());
+  reportsCharts = {};
+
+  const chartColors = {
+    primary: "#059669",
+    secondary: "#10b981",
+    accent: "#34d399",
+    muted: "#94a3b8",
+    palette: ["#059669", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#06b6d4", "#84cc16", "#f97316", "#6366f1"],
+  };
+
+  const defaultOptions = {
+    responsive: true,
+    maintainAspectRatio: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false } },
+      y: { beginAtZero: true, grid: { color: "#e2e8f0" } },
+    },
+  };
+
+  const periodLabels = byPeriod.data.map(d => {
+    const parts = d.period.split("-");
+    return parts.length === 3 ? `${parts[2]}/${parts[1]}` : d.period;
+  });
+
+  reportsCharts.byPeriod = new Chart(document.getElementById("chartByPeriod"), {
+    type: "line",
+    data: {
+      labels: periodLabels,
+      datasets: [{
+        data: byPeriod.data.map(d => d.count),
+        borderColor: chartColors.primary,
+        backgroundColor: chartColors.primary + "20",
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2,
+      }],
+    },
+    options: defaultOptions,
+  });
+
+  reportsCharts.hourly = new Chart(document.getElementById("chartHourly"), {
+    type: "bar",
+    data: {
+      labels: hourly.data.map(d => `${d.hour}h`),
+      datasets: [{
+        data: hourly.data.map(d => d.count),
+        backgroundColor: hourly.data.map((d, i) => (i >= 8 && i <= 18) ? chartColors.primary : chartColors.muted),
+      }],
+    },
+    options: defaultOptions,
+  });
+
+  reportsCharts.weekday = new Chart(document.getElementById("chartWeekday"), {
+    type: "bar",
+    data: {
+      labels: weekday.data.map(d => d.weekday),
+      datasets: [{
+        data: weekday.data.map(d => d.count),
+        backgroundColor: chartColors.palette.slice(0, 7),
+      }],
+    },
+    options: defaultOptions,
+  });
+
+  reportsCharts.topContacts = new Chart(document.getElementById("chartTopContacts"), {
+    type: "bar",
+    data: {
+      labels: topContacts.data.map(d => d.name.length > 15 ? d.name.substring(0, 15) + "..." : d.name),
+      datasets: [{
+        data: topContacts.data.map(d => d.count),
+        backgroundColor: chartColors.palette,
+      }],
+    },
+    options: {
+      ...defaultOptions,
+      indexAxis: "y",
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { beginAtZero: true, grid: { color: "#e2e8f0" } },
+        y: { grid: { display: false } },
+      },
+    },
+  });
+
+  reportsCharts.byAttendant = new Chart(document.getElementById("chartByAttendant"), {
+    type: "doughnut",
+    data: {
+      labels: byAttendant.data.map(d => d.name),
+      datasets: [{
+        data: byAttendant.data.map(d => d.count),
+        backgroundColor: chartColors.palette.slice(0, byAttendant.data.length),
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { position: "bottom", labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+      },
+    },
+  });
+
+  reportsCharts.byType = new Chart(document.getElementById("chartByType"), {
+    type: "doughnut",
+    data: {
+      labels: byType.data.map(d => d.type),
+      datasets: [{
+        data: byType.data.map(d => d.count),
+        backgroundColor: chartColors.palette.slice(0, byType.data.length),
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: { position: "bottom", labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+      },
+    },
+  });
+}
+
 async function login(email, password) {
   // Só gera nova charada se não tiver uma válida
   if (!state.loginChallengeId) {
@@ -3442,6 +3610,10 @@ function bindEvents() {
       showErrorToast("Erro na limpeza de contatos: " + (error.message || "Erro desconhecido"));
     }
   });
+  els.openReportsBtn.addEventListener("click", () => openReportsDashboard());
+  els.closeReportsBtn.addEventListener("click", () => closeReportsDashboard());
+  els.reportsOverlay.addEventListener("click", (e) => { if (e.target === els.reportsOverlay) closeReportsDashboard(); });
+  els.reportsPeriod.addEventListener("change", () => loadReportsData());
   els.openTemplatesManagerBtn.addEventListener("click", () => {
     openTemplatesManager();
   });

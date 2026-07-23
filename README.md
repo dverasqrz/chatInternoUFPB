@@ -37,6 +37,17 @@ Aplicacao FastAPI para atendimento multiatendente via WhatsApp. Frontend vanilla
 - **Exportacao** - PDF (ReportLab) e HTML com range de datas, nome do telefone e autor corrigido
 - **Limpeza automatica** - remocao de conversas vazias no startup
 
+### Relatorios e Analytics
+- **Dashboard de relatorios** - painel completo com metricas e graficos
+- **Resumo geral** - total de contatos, mensagens, media por dia
+- **Mensagens por periodo** - grafico de linha (dia/mes)
+- **Distribuicao horaria** - horarios de maior atividade
+- **Dias da semana** - seg-dom mais intensos
+- **Top contatos** - contatos mais ativos
+- **Desempenho atendentes** - mensagens por atendente (inclui ferramenta externa)
+- **Tipos de mensagem** - distribuicao de texto, imagem, audio, video, documento, sticker
+- **Filtro de periodo** - 7, 30, 90 dias ou ultimo ano
+
 ### IA e Integracao
 - **Sistema de IA** - consulta via n8n com toggle de agente automatico
 - **Normalizacao de midia** - stickers e outros tipos sao normalizados para compatibilidade com n8n
@@ -481,6 +492,13 @@ Headers aceitos para token: `x-webhook-token`, `x-token`, `Authorization: Bearer
 | `DELETE` | `/admin/cleanup/messages` | Admin | Apaga todas mensagens |
 | `DELETE` | `/admin/cleanup/uploads` | Admin | Apaga todas midias |
 | `DELETE` | `/admin/cleanup/contacts` | Admin | Apaga todas conversas |
+| `GET` | `/admin/reports/summary` | Admin | Resumo geral (contatos, mensagens, media/dia) |
+| `GET` | `/admin/reports/by-period?days=&period=` | Admin | Mensagens por dia/mes |
+| `GET` | `/admin/reports/hourly?days=` | Admin | Distribuicao por hora (0-23) |
+| `GET` | `/admin/reports/weekday?days=` | Admin | Distribuicao por dia da semana |
+| `GET` | `/admin/reports/top-contacts?limit=` | Admin | Top contatos por mensagens |
+| `GET` | `/admin/reports/by-attendant?days=` | Admin | Mensagens por atendente |
+| `GET` | `/admin/reports/by-type?days=` | Admin | Mensagens por tipo |
 
 ### Templates
 
@@ -527,6 +545,7 @@ O frontend e vanilla JS servido em `/inbox`. Nao requer build step.
 - **Chat** - mensagens com suporte a texto, imagem, audio, video, documento, sticker
 - **Composer** - campo de texto com upload de midia, gravacao de audio, templates
 - **Envio por Enter** - Ctrl+Enter ou Shift+Enter para nova linha
+- **Colar imagem** - Ctrl+V cola imagem do clipboard (mesmo fluxo de upload)
 - **Edicao inline** - botao de editar em mensagens outbound de texto
 - **Revogacao** - botao de apagar para todos
 - **Citacao** - botao de responder com preview da mensagem original
@@ -536,6 +555,7 @@ O frontend e vanilla JS servido em `/inbox`. Nao requer build step.
 - **Preview de arquivos** - thumbnail apos upload
 - **Templates** - modal de selecao com trigger por `/`
 - **Exportacao** - modal com range de datas para PDF/HTML
+- **Dashboard de relatorios** - painel admin com graficos (Chart.js)
 - **Config de IA** - toggle de agente e selecao de provider
 - **Scroll automatico** - rola para o final apos enviar mensagem
 

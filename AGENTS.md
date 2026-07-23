@@ -575,6 +575,13 @@ Todas chamam `_handle_webhook_payload()` que:
 | `DELETE` | `/admin/cleanup/messages` | Admin | Apaga todas mensagens |
 | `DELETE` | `/admin/cleanup/uploads` | Admin | Apaga todas midias |
 | `DELETE` | `/admin/cleanup/contacts` | Admin | Apaga todas conversas |
+| `GET` | `/admin/reports/summary` | Admin | Resumo geral (contatos, mensagens, media/dia) |
+| `GET` | `/admin/reports/by-period?days=&period=` | Admin | Mensagens por dia/mes |
+| `GET` | `/admin/reports/hourly?days=` | Admin | Distribuicao por hora (0-23) |
+| `GET` | `/admin/reports/weekday?days=` | Admin | Distribuicao por dia da semana |
+| `GET` | `/admin/reports/top-contacts?limit=` | Admin | Top contatos por mensagens |
+| `GET` | `/admin/reports/by-attendant?days=` | Admin | Mensagens por atendente |
+| `GET` | `/admin/reports/by-type?days=` | Admin | Mensagens por tipo |
 
 ### Templates (app/api/routes/templates.py, prefixo `/templates`)
 
